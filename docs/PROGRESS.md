@@ -16,7 +16,7 @@ to look to see where things stand. Newest entry at the top.
 | Backend API | Not started |
 | Cloudflare Worker (ingestion + AI) | Not started |
 | Auth + RLS | Not started |
-| Portal app | In progress — Phase 2: Shell + Job board + detail peek wired (Phase 3 screens next) |
+| Portal app | UI complete — all v3 screens ported (board, workspace, conversations, reporting, assets, bell), mock data; API wiring pending |
 
 ---
 
@@ -51,6 +51,17 @@ to look to see where things stand. Newest entry at the top.
 > - **Verified:** how it was checked (Manish runs builds/migrations himself).
 > - **Next:** the immediate next step.
 > - **Notes:** anything the next session needs to know.
+
+### 2026-06-23 — Portal Phase 3: workspace, bell, other screens + AppV3 root
+- **Did:** Ported ProposalWorkspaceV3 (two-column workspace, regenerate confirm, copy/insert),
+  BellPopup (real bell + Important-actions dropdown, replacing the stub), and OtherScreens
+  (Conversations, Reporting, Assets) to typed TSX via parallel agents; wrote the real `App.tsx`
+  AppV3 state machine (screens, peek, workspace, bell deep-links) replacing the interim root.
+- **Verified:** `npm run typecheck` clean across the whole portal. In-browser eyeball via the
+  running dev server pending.
+- **Next:** Backend wiring — the portal is feature-complete on mock data; `lib/mock-data.ts` is
+  the seam to swap for real API calls. (Extension UI revamp also in flight.)
+- **Notes:** Portal UI is now the full v3 design, mock-data driven. Faithful 1:1 ports.
 
 ### 2026-06-23 — Portal Phase 2: Shell + Job board + detail peek
 - **Did:** Ported ShellV3 (Sidebar / PageHeader / NAV), JobBoardV3 (board + KPI strip + filters +
