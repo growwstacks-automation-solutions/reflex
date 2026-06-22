@@ -43,7 +43,7 @@ re-checks `users.active` on every request (the lock-out), enforces RLS via a per
 `app.user_id` claim, and exposes reads (board, job detail, conversations, reporting) and
 writes (claim, save/regenerate proposal, mark submitted, attach assets, log connects).
 
-**Presentation** — portal (Next.js) and extension (MV3). Neither holds a secret; both call
+**Presentation** — portal (React/Vite) and extension (MV3). Neither holds a secret; both call
 the API with a token obtained at login.
 
 ---

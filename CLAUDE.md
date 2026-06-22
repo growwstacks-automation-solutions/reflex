@@ -88,7 +88,7 @@ reps who are **not technical** — every screen resolves to one obvious action; 
 
 ## Tech stack (fixed)
 
-- **Portal:** Next.js (App Router, TypeScript)
+- **Portal:** React + Vite (TypeScript, client-rendered SPA)
 - **Extension:** Manifest V3, vanilla JS (no build step)
 - **API:** TypeScript backend (route handlers / serverless)
 - **DB:** Neon Postgres 17 + `pgvector` (same DB — no separate vector store)

@@ -1,0 +1,35 @@
+/* Reflex portal — global stylesheet.
+   Design tokens are imported first (CSS @import must precede other rules),
+   then the base reset + animation keyframes carried over verbatim from the
+   portal-v3 design kit (ui_kits/portal-v3/index.html). */
+@import "./tokens/fonts.css";
+@import "./tokens/colors.css";
+@import "./tokens/typography.css";
+@import "./tokens/spacing.css";
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--canvas);
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+#root { height: 100%; }
+::selection { background: var(--terracotta-100); }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); background-clip: content-box; }
+button { font-family: inherit; }
+input, textarea { font-family: inherit; }
+@keyframes rx-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rx-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes rx-pop { from { opacity: 0; transform: translateY(-6px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes rx-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes rx-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+@keyframes rx-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; }
+}

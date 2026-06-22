@@ -16,7 +16,7 @@ to look to see where things stand. Newest entry at the top.
 | Backend API | Not started |
 | Cloudflare Worker (ingestion + AI) | Not started |
 | Auth + RLS | Not started |
-| Portal app | Not started |
+| Portal app | Scaffolded — React + Vite, design tokens + dark mode (Phase 0) |
 
 ---
 
@@ -51,6 +51,21 @@ to look to see where things stand. Newest entry at the top.
 > - **Verified:** how it was checked (Manish runs builds/migrations himself).
 > - **Next:** the immediate next step.
 > - **Notes:** anything the next session needs to know.
+
+### 2026-06-23 — Portal scaffold (React + Vite) + design foundation
+- **Did:** Scaffolded `apps/portal` as a **React + Vite + TypeScript** SPA (reversing the
+  earlier Next.js plan — see D13). Brought the portal-v3 design foundation into the app:
+  `tokens/{fonts,colors,typography,spacing}.css` + `globals.css` (base reset/keyframes) carried
+  verbatim from the Claude Design "Reflex Design System" project; wired `data-theme` light/dark
+  and a Phase-0 placeholder screen.
+- **Verified:** Not yet — Manish runs `cd apps/portal && npm install && npm run dev` and eyeballs
+  fonts + tokens + the light/dark toggle. Nothing committed; staged for review.
+- **Next:** Phase 1 — port primitives (icons, ui atoms, shared DS components Button /
+  TaxonomyChip / RelevanceBadge) and `data.js` → typed `lib/mock-data.ts`.
+- **Notes:** Styling locked to CSS variables + inline styles (faithful 1:1 port); routing is
+  in-memory screen state first, real routes later. Neon CLI authenticated (org Growwstacks,
+  project `Reflex` / divine-unit-90472716); DB stays out of the portal — the frontend holds no
+  secret, only the API talks to Neon.
 
 ### (seed) — Project bootstrapped
 - **Did:** Created the scaffold — `CLAUDE.md`, the `docs/` tree (ARCHITECTURE, SCHEMA,

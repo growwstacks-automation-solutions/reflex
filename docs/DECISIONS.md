@@ -68,6 +68,13 @@ login/empty states. Four-level taxonomy chips have a locked color mapping (tool=
 use case=teal, department=blue, industry=amber). Built for non-technical reps: one action per
 view. · Locked.
 
+### D13 — Portal framework: React + Vite (SPA), not Next.js
+The portal is an internal, authenticated single-page app behind login — no SSR, SEO, or
+server-rendering needs that would justify Next.js. React + Vite gives a lighter, faster
+client-only build, and the portal-v3 design kit is already plain React + CSS-variable styling
+that ports directly. Reverses the earlier "Next.js (App Router)" line in CLAUDE.md's tech
+stack. · 2026-06-23 · founder call; reopened the previously-fixed stack.
+
 ---
 
 *Open questions (not yet decided) — track here, move up when settled:*

@@ -6,7 +6,16 @@
 .env.local
 .env*.local
 
+# Neon CLI local context (org/project id — not a secret, but machine-local)
+.neon
+
 # Dependencies / build output
 node_modules/
 dist/
 build/
+
+# React/Vite
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo

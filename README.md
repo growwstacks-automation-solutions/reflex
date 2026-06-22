@@ -17,7 +17,7 @@ shift-based assignment, token accounting) behind simple, single-action screens.
 
 ## How it's built (one line)
 
-A Next.js portal and a Manifest V3 extension talk to a TypeScript API backed by Neon Postgres
+A React/Vite portal and a Manifest V3 extension talk to a TypeScript API backed by Neon Postgres
 (with `pgvector` for retrieval). A Cloudflare Worker handles Upwork ingestion, message sync,
 and AI generation; Cloudflare R2 stores asset files. Everything Upwork-facing that the
 extension does is reactive and human-confirmed; all automated polling is server-side through

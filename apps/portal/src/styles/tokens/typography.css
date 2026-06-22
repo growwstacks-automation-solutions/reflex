@@ -1,0 +1,38 @@
+/* ============================================================
+   Reflex — Typography tokens
+   UI: Plus Jakarta Sans · Data/mono: JetBrains Mono
+   Accent: Fraunces (serif) — ONLY large empty states, login,
+   onboarding. Never inside dense lists.
+   Weights: 400 / 500 / 600 only. Avoid 700. Sentence case always.
+   ============================================================ */
+
+:root {
+  /* Families */
+  --font-ui:   'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-accent: 'Fraunces', Georgia, 'Times New Roman', serif;
+
+  /* Type scale (role → size) */
+  --fs-display: 28px;  /* empty states, login */
+  --fs-h1:      22px;
+  --fs-h2:      18px;
+  --fs-h3:      16px;
+  --fs-body:    14px;
+  --fs-meta:    13px;
+  --fs-caption: 12px;
+  --fs-mono:    12px;  /* mono label */
+
+  /* Weights */
+  --fw-regular: 400;   /* @kind other */
+  --fw-medium:  500;   /* @kind other */
+  --fw-semibold:600;   /* @kind other */
+
+  /* Line heights */
+  --lh-tight:  1.2;    /* @kind other */
+  --lh-snug:   1.35;   /* @kind other */
+  --lh-body:   1.5;    /* @kind other */
+
+  /* Letter spacing — humanist, near-zero */
+  --ls-tight: -0.01em;
+  --ls-normal: 0;      /* @kind other */
+}

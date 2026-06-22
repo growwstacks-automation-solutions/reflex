@@ -14,7 +14,7 @@ exact — copy-pasteable commands, not prose.
 
 ```
 /                     repo root (this CLAUDE.md, docs/, .claude/)
-  apps/portal         Next.js portal
+  apps/portal         React/Vite portal
   apps/extension      Manifest V3 Chrome extension
   apps/api            backend API
   worker/             Cloudflare Worker (ingestion + AI)

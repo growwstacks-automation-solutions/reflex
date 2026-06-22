@@ -1,0 +1,58 @@
+/* ============================================================
+   Reflex — Color tokens
+   Color is signal, never decoration. It encodes exactly two
+   things: what kind of job this is (taxonomy) and whether it's
+   worth pursuing (relevance). Everything else is warm neutral.
+   ============================================================ */
+
+:root {
+  /* --- Brand: Terracotta (the one warm signal) --- */
+  --terracotta-50:  #FAECE7;
+  --terracotta-100: #F5C4B3;
+  --terracotta-500: #D85A30;  /* primary action, brand mark */
+  --terracotta-700: #993C1D;  /* text on light tint, button hover */
+  --terracotta-900: #4A1B0C;  /* deepest text on tint */
+
+  /* --- Neutrals: warm-tinted (never cold blue-gray) — LIGHT --- */
+  --canvas:        #FAF9F6;   /* page background */
+  --surface:       #FFFFFF;   /* cards, panels */
+  --surface-2:     #F4F2EE;   /* raised/secondary blocks, KPI cards */
+  --border:        rgba(0,0,0,0.10);  /* hairline 0.5–1px */
+  --text-primary:  #1F1D1A;
+  --text-secondary:#6B6862;
+  --text-tertiary: #9A968E;
+
+  /* --- Semantic: relevance verdict (the heart of the board) --- */
+  --relevant-text: #0F6E56;  --relevant-fill: #E1F5EE;
+  --review-text:   #854F0B;  --review-fill:   #FAEEDA;
+  --irrelevant-text:#A32D2D; --irrelevant-fill:#FCEBEB;
+  --info-text:     #0C447C;  --info-fill:     #E6F1FB;
+
+  /* --- Taxonomy chips: LOCKED mapping, never reassign --- */
+  --tax-tool-text:    #3C3489;  --tax-tool-fill:    #EEEDFE;  /* Tool — purple */
+  --tax-usecase-text: #0F6E56;  --tax-usecase-fill: #E1F5EE;  /* Use case — teal */
+  --tax-dept-text:    #0C447C;  --tax-dept-fill:    #E6F1FB;  /* Department — blue */
+  --tax-industry-text:#854F0B;  --tax-industry-fill:#FAEEDA;  /* Industry — amber */
+
+  /* --- Semantic aliases (use these in components) --- */
+  --bg-page:        var(--canvas);
+  --bg-card:        var(--surface);
+  --bg-raised:      var(--surface-2);
+  --accent:         var(--terracotta-500);
+  --accent-hover:   var(--terracotta-700);
+  --accent-tint:    var(--terracotta-50);
+  --accent-on-tint: var(--terracotta-700);
+  --focus-ring:     var(--terracotta-500);
+  --border-hair:    var(--border);
+}
+
+/* --- Warm-dark theme (portal full dark; extension follows host) --- */
+[data-theme="dark"] {
+  --canvas:        #1A1815;
+  --surface:       #232019;
+  --surface-2:     #2C2823;
+  --border:        rgba(255,255,255,0.12);
+  --text-primary:  #F0EDE7;
+  --text-secondary:#A8A399;
+  --text-tertiary: #736F66;
+}
