@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <!-- signed-out -->
+    <div id="signedOut" class="screen">
+      <div class="brandrow">
+        <div class="mark">R</div>
+        <div class="bname">Reflex</div>
+      </div>
+      <div class="lead">Sign in to your Reflex account.</div>
+      <input class="field" id="email" type="email" placeholder="Work email" value="neha@growwstacks.com">
+      <input class="field" id="pw" type="password" placeholder="Password" value="••••••••">
+      <button class="btn primary full" id="signin">Sign in</button>
+      <div class="hint">No OTP — your admin controls access.</div>
+    </div>
+
+    <!-- signed-in / active -->
+    <div id="signedIn" class="screen hidden">
+      <div class="brandrow">
+        <div class="mark">R</div>
+        <div class="bname">Reflex</div>
+      </div>
+      <div class="user">Neha K. · <b class="ok">Active</b></div>
+      <div class="callout ok-bg">
+        Open any Upwork page and click the <b>Reflex</b> button in the bottom-right corner to start.
+      </div>
+      <button class="btn ghost full" id="signout">Sign out</button>
+    </div>
+
+    <!-- deactivated -->
+    <div id="deactivated" class="screen hidden">
+      <div class="brandrow">
+        <div class="mark muted">R</div>
+        <div class="bname">Reflex</div>
+      </div>
+      <div class="callout warn-bg">
+        Your access has been turned off. Contact your admin.
+      </div>
+    </div>
+
+    <!-- demo-only state switcher -->
+    <div class="demobar">
+      <span>Preview state:</span>
+      <button data-state="signedOut">Login</button>
+      <button data-state="signedIn">Active</button>
+      <button data-state="deactivated">Deactivated</button>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

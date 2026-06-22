@@ -1,0 +1,31 @@
+:root{
+  --terra-50:#FAECE7; --terra-500:#D85A30; --terra-700:#993C1D;
+  --canvas:#FAF9F6; --surface:#FFFFFF; --surface-2:#F4F2EE; --border:rgba(0,0,0,.10);
+  --text:#1F1D1A; --text-2:#6B6862; --text-3:#9A968E;
+  --green-t:#0F6E56; --green-b:#E1F5EE; --amber-t:#854F0B; --amber-b:#FAEEDA;
+  --sans:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;font-family:var(--sans)}
+body{width:300px;background:var(--canvas);color:var(--text);padding:16px}
+.screen.hidden{display:none}
+.brandrow{display:flex;align-items:center;gap:9px;margin-bottom:14px}
+.mark{width:26px;height:26px;border-radius:7px;background:var(--terra-500);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
+.mark.muted{background:var(--text-3)}
+.bname{font-size:15px;font-weight:600}
+.lead{font-size:13px;color:var(--text-2);margin-bottom:12px}
+.field{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:9px;background:var(--surface)}
+.field:focus{outline:2px solid var(--terra-500);outline-offset:1px;border-color:transparent}
+.btn{font-size:13px;font-weight:600;padding:10px;border-radius:8px;cursor:pointer;border:none;width:100%}
+.btn.primary{background:var(--terra-500);color:#fff}
+.btn.primary:hover{background:var(--terra-700)}
+.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
+.btn.full{width:100%}
+.hint{font-size:11px;color:var(--text-3);margin-top:8px;text-align:center}
+.user{font-size:13px;color:var(--text-2);margin-bottom:12px}
+.user b.ok{color:var(--green-t)}
+.callout{font-size:13px;padding:11px;border-radius:8px;line-height:1.45;margin-bottom:12px}
+.ok-bg{background:var(--green-b);color:var(--green-t)}
+.warn-bg{background:var(--amber-b);color:var(--amber-t)}
+.demobar{margin-top:16px;padding-top:12px;border-top:1px dashed var(--border);font-size:11px;color:var(--text-3);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.demobar button{font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;color:var(--text-2)}
+.demobar button:hover{background:var(--surface-2)}

@@ -1,0 +1,258 @@
+/* ============================================================
+   Reflex — content styles
+   Design system foundation, scoped under #rfx-root so Upwork's
+   own CSS can't leak in and ours can't leak out.
+   ============================================================ */
+
+#rfx-root, #rfx-launcher {
+  /* ---- tokens ---- */
+  --rfx-terra-50:#FAECE7;
+  --rfx-terra-100:#F5C4B3;
+  --rfx-terra-500:#D85A30;
+  --rfx-terra-700:#993C1D;
+  --rfx-terra-900:#4A1B0C;
+
+  --rfx-canvas:#FAF9F6;
+  --rfx-surface:#FFFFFF;
+  --rfx-surface-2:#F4F2EE;
+  --rfx-border:rgba(0,0,0,0.10);
+
+  --rfx-text:#1F1D1A;
+  --rfx-text-2:#6B6862;
+  --rfx-text-3:#9A968E;
+
+  --rfx-green-t:#0F6E56; --rfx-green-b:#E1F5EE;
+  --rfx-amber-t:#854F0B; --rfx-amber-b:#FAEEDA;
+  --rfx-red-t:#A32D2D;   --rfx-red-b:#FCEBEB;
+  --rfx-blue-t:#0C447C;  --rfx-blue-b:#E6F1FB;
+  --rfx-purple-t:#3C3489;--rfx-purple-b:#EEEDFE;
+
+  --rfx-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --rfx-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* hard reset within our scope only */
+#rfx-root, #rfx-root * , #rfx-launcher, #rfx-launcher * {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: var(--rfx-sans);
+  line-height: 1.4;
+  letter-spacing: 0;
+}
+
+/* ---------- floating launcher ---------- */
+#rfx-launcher {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--rfx-terra-500);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 22px;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(216,90,48,0.38), 0 2px 6px rgba(0,0,0,0.18);
+  z-index: 2147483600;
+  border: none;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+#rfx-launcher:hover { transform: translateY(-2px) scale(1.03); }
+#rfx-launcher .rfx-dot {
+  position: absolute; top: 2px; right: 2px;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--rfx-amber-t); border: 2px solid #fff;
+}
+#rfx-launcher.rfx-hidden { display: none; }
+
+/* ---------- panel ---------- */
+#rfx-root {
+  position: fixed;
+  top: 0; right: 0;
+  width: 372px;
+  height: 100vh;
+  background: var(--rfx-canvas);
+  box-shadow: -8px 0 30px rgba(0,0,0,0.14);
+  z-index: 2147483601;
+  display: flex;
+  flex-direction: column;
+  color: var(--rfx-text);
+  transform: translateX(100%);
+  transition: transform .22s cubic-bezier(.22,.61,.36,1);
+  font-size: 14px;
+}
+#rfx-root.rfx-open { transform: translateX(0); }
+
+/* header */
+.rfx-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px;
+  background: var(--rfx-surface);
+  border-bottom: 1px solid var(--rfx-border);
+}
+.rfx-mark {
+  width: 26px; height: 26px; border-radius: 7px;
+  background: var(--rfx-terra-500); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px;
+}
+.rfx-id { line-height: 1.15; }
+.rfx-id .rfx-name { font-size: 14px; font-weight: 600; }
+.rfx-id .rfx-user { font-size: 11.5px; color: var(--rfx-text-3); }
+.rfx-id .rfx-user b { color: var(--rfx-green-t); font-weight: 600; }
+.rfx-x {
+  margin-left: auto; cursor: pointer; color: var(--rfx-text-3);
+  width: 28px; height: 28px; border-radius: 7px; border: none; background: transparent;
+  font-size: 18px; display: flex; align-items: center; justify-content: center;
+}
+.rfx-x:hover { background: var(--rfx-surface-2); color: var(--rfx-text); }
+
+/* surface switcher */
+.rfx-switch {
+  display: flex; gap: 4px; padding: 10px 12px 4px;
+  background: var(--rfx-surface); border-bottom: 1px solid var(--rfx-border);
+}
+.rfx-tab {
+  flex: 1; text-align: center; font-size: 12px; font-weight: 500;
+  padding: 7px 4px; border-radius: 7px; cursor: pointer;
+  color: var(--rfx-text-2); border: none; background: transparent;
+}
+.rfx-tab.rfx-active { background: var(--rfx-terra-50); color: var(--rfx-terra-700); }
+
+/* body */
+.rfx-body { flex: 1; overflow-y: auto; padding: 14px; }
+.rfx-context-note {
+  font-size: 11px; color: var(--rfx-text-3); margin-bottom: 10px;
+  background: var(--rfx-surface-2); padding: 7px 10px; border-radius: 7px;
+}
+
+/* footer */
+.rfx-footer {
+  padding: 9px 14px; font-size: 11px; color: var(--rfx-text-3);
+  border-top: 1px solid var(--rfx-border); background: var(--rfx-surface);
+  display: flex; align-items: center; gap: 6px;
+}
+.rfx-footer .rfx-sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--rfx-green-t); }
+
+/* ---------- generic bits ---------- */
+.rfx-card {
+  background: var(--rfx-surface); border: 1px solid var(--rfx-border);
+  border-radius: 10px; padding: 14px; margin-bottom: 10px;
+}
+.rfx-title { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.rfx-meta { font-size: 12px; color: var(--rfx-text-3); }
+.rfx-divider { height: 1px; background: var(--rfx-border); margin: 10px 0; }
+
+/* chips */
+.rfx-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.rfx-chip {
+  font-size: 11px; padding: 3px 9px; border-radius: 6px; font-weight: 500;
+}
+.rfx-chip.tool { color: var(--rfx-purple-t); background: var(--rfx-purple-b); }
+.rfx-chip.use  { color: var(--rfx-green-t);  background: var(--rfx-green-b); }
+.rfx-chip.dept { color: var(--rfx-blue-t);   background: var(--rfx-blue-b); }
+.rfx-chip.ind  { color: var(--rfx-amber-t);  background: var(--rfx-amber-b); }
+.rfx-chip.new  { border: 1px dashed currentColor; background: transparent; }
+
+/* badges */
+.rfx-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+}
+.rfx-badge.rel { color: var(--rfx-green-t); background: var(--rfx-green-b); }
+.rfx-badge.rev { color: var(--rfx-amber-t); background: var(--rfx-amber-b); }
+.rfx-badge.irr { color: var(--rfx-red-t);   background: var(--rfx-red-b); }
+.rfx-badge.inf { color: var(--rfx-blue-t);  background: var(--rfx-blue-b); }
+
+/* buttons */
+.rfx-btn {
+  font-family: var(--rfx-sans); font-size: 13px; font-weight: 600;
+  padding: 9px 14px; border-radius: 8px; cursor: pointer; border: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.rfx-btn.primary { background: var(--rfx-terra-500); color: #fff; }
+.rfx-btn.primary:hover { background: var(--rfx-terra-700); }
+.rfx-btn.ghost { background: transparent; color: var(--rfx-text); border: 1px solid var(--rfx-border); }
+.rfx-btn.ghost:hover { background: var(--rfx-surface-2); }
+.rfx-btn.full { width: 100%; }
+.rfx-btn.sm { font-size: 12px; padding: 6px 10px; }
+.rfx-btn:disabled { opacity: .55; cursor: default; }
+
+/* token cost */
+.rfx-cost { font-family: var(--rfx-mono); font-size: 11.5px; color: var(--rfx-text-3); }
+
+/* editable area */
+.rfx-edit {
+  width: 100%; min-height: 120px; resize: vertical;
+  border: 1px solid var(--rfx-border); border-radius: 8px; padding: 10px;
+  font-family: var(--rfx-sans); font-size: 13px; color: var(--rfx-text);
+  background: var(--rfx-canvas);
+}
+.rfx-edit:focus { outline: 2px solid var(--rfx-terra-500); outline-offset: 1px; border-color: transparent; }
+
+/* tone toggle */
+.rfx-tones { display: flex; gap: 6px; margin: 8px 0; }
+.rfx-tone {
+  font-size: 11.5px; padding: 5px 10px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--rfx-border); background: transparent; color: var(--rfx-text-2);
+}
+.rfx-tone.rfx-active { background: var(--rfx-terra-50); color: var(--rfx-terra-700); border-color: var(--rfx-terra-100); }
+
+/* asset picker */
+.rfx-assets { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 8px 0; }
+.rfx-asset {
+  aspect-ratio: 4/3; border-radius: 7px; cursor: pointer; position: relative;
+  display: flex; align-items: flex-end; padding: 6px; font-size: 10px; color: #fff;
+  border: 2px solid transparent;
+}
+.rfx-asset.sel { border-color: var(--rfx-terra-500); }
+.rfx-asset .rfx-check {
+  position: absolute; top: 5px; right: 5px; width: 16px; height: 16px;
+  background: var(--rfx-terra-500); border-radius: 50%; display: none;
+  align-items: center; justify-content: center; font-size: 10px;
+}
+.rfx-asset.sel .rfx-check { display: flex; }
+
+/* message bubbles */
+.rfx-msg { margin-bottom: 8px; max-width: 88%; }
+.rfx-msg .rfx-bubble {
+  padding: 9px 11px; border-radius: 10px; font-size: 13px;
+}
+.rfx-msg.them .rfx-bubble { background: var(--rfx-surface-2); color: var(--rfx-text); }
+.rfx-msg.me { margin-left: auto; }
+.rfx-msg.me .rfx-bubble { background: var(--rfx-terra-50); color: var(--rfx-terra-900); }
+.rfx-msg .rfx-who { font-size: 10.5px; color: var(--rfx-text-3); margin: 0 2px 3px; }
+
+/* spinner */
+.rfx-spin {
+  width: 15px; height: 15px; border: 2px solid rgba(255,255,255,.5);
+  border-top-color: #fff; border-radius: 50%; animation: rfx-rot .7s linear infinite;
+}
+.rfx-spin.dark { border: 2px solid var(--rfx-border); border-top-color: var(--rfx-terra-500); }
+@keyframes rfx-rot { to { transform: rotate(360deg); } }
+
+/* injected listing badge (on real Upwork job tiles) */
+.rfx-tile-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--rfx-sans); font-size: 11px; font-weight: 600;
+  padding: 3px 9px; border-radius: 999px; margin: 6px 8px 0 0; vertical-align: middle;
+}
+.rfx-tile-add {
+  font-family: var(--rfx-sans); font-size: 11px; font-weight: 600;
+  padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  background: var(--rfx-terra-500); color: #fff; border: none; margin-top: 6px;
+}
+
+.rfx-section-label {
+  font-size: 11px; font-weight: 600; color: var(--rfx-text-2);
+  text-transform: none; margin: 4px 0 8px;
+}
+.rfx-spark { font-size: 14px; }
+.rfx-row { display: flex; align-items: center; gap: 8px; }
+.rfx-between { display: flex; align-items: center; justify-content: space-between; }
+.rfx-mt { margin-top: 10px; }
