@@ -43,7 +43,7 @@ re-checks `users.active` on every request (the lock-out), enforces RLS via a per
 `app.user_id` claim, and exposes reads (board, job detail, conversations, reporting) and
 writes (claim, save/regenerate proposal, mark submitted, attach assets, log connects).
 
-**Presentation** — portal (React/Vite) and extension (MV3). Neither holds a secret; both call
+**Presentation** — portal (React + Vite) and extension (MV3). Neither holds a secret; both call
 the API with a token obtained at login.
 
 ---
@@ -96,3 +96,6 @@ reps' Upwork accounts.
 - **Worker cron, not Postgres, for polling** — Postgres has no business making HTTP calls;
   the lag bug is a polling problem and belongs in a Worker. n8n is an optional alternative host.
 - **No LangGraph** — direct API calls; one thread per job is enough.
+- **React + Vite SPA, not Next.js** — all server logic lives in the API and Worker, so Next.js's
+  SSR/server components/API routes are unused weight and its Cloudflare adapter is avoided; a
+  Vite SPA deploys to Cloudflare as static files. See D13.

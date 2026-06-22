@@ -14,7 +14,7 @@ exact — copy-pasteable commands, not prose.
 
 ```
 /                     repo root (this CLAUDE.md, docs/, .claude/)
-  apps/portal         React/Vite portal
+  apps/portal         React + Vite SPA (portal)
   apps/extension      Manifest V3 Chrome extension
   apps/api            backend API
   worker/             Cloudflare Worker (ingestion + AI)
@@ -52,7 +52,7 @@ store — **never in code, never in a prompt.** Expected variables (names only):
 
 ## Run locally (fill in as apps are built)
 
-- Portal: `cd apps/portal && npm install && npm run dev`
+- Portal: `cd apps/portal && npm install && npm run dev` (Vite dev server; `npm run build` emits a static `dist/`)
 - API: `cd apps/api && npm install && npm run dev`
 - Worker: `cd worker && npm install && npx wrangler dev`
 - Extension: load `apps/extension` unpacked via `chrome://extensions` (Developer mode →
@@ -70,7 +70,7 @@ store — **never in code, never in a prompt.** Expected variables (names only):
 
 ## Deploy (fill in when deploy targets are set)
 
-- Portal → (Cloudflare Pages / Vercel — TBD)
+- Portal → Cloudflare Pages (or Workers static assets). `npm run build` emits static files; no adapter needed.
 - Worker → `npx wrangler deploy`
 - Extension → package and upload to the Chrome Web Store as **Unlisted**.
 

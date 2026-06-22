@@ -16,7 +16,7 @@ to look to see where things stand. Newest entry at the top.
 | Backend API | Not started |
 | Cloudflare Worker (ingestion + AI) | Not started |
 | Auth + RLS | Not started |
-| Portal app | Scaffolded — React + Vite, design tokens + dark mode (Phase 0) |
+| Portal app | In progress — Phase 1 primitives + mock data ported (screens next) |
 
 ---
 
@@ -52,6 +52,17 @@ to look to see where things stand. Newest entry at the top.
 > - **Next:** the immediate next step.
 > - **Notes:** anything the next session needs to know.
 
+### 2026-06-23 — Portal Phase 1: design primitives + mock data
+- **Did:** Ported the portal-v3 primitives to typed TSX (via parallel agents):
+  `components/icons.tsx` (RXIcons — 32 line icons), `components/ds/{Button,TaxonomyChip,RelevanceBadge}.tsx`
+  + barrel, `components/ui.tsx` atoms (Card, QualityChip, Avatar, Ownership, Mono, CopyButton,
+  Eyebrow), and `lib/types.ts` + `lib/mock-data.ts` (`data.js` typed — the API seam). Styling
+  kept 1:1 (CSS vars + inline).
+- **Verified:** Not yet — run `cd apps/portal && npm install && npm run typecheck` (Claude has no
+  node_modules, so `tsc` wasn't run). Primitives only; nothing visual yet.
+- **Next:** Phase 2 — Shell + Job board + detail peek.
+- **Notes:** Faithful ports; only additive type annotations. `RXIconName` is the literal union.
+
 ### 2026-06-23 — Portal scaffold (React + Vite) + design foundation
 - **Did:** Scaffolded `apps/portal` as a **React + Vite + TypeScript** SPA (reversing the
   earlier Next.js plan — see D13). Brought the portal-v3 design foundation into the app:
@@ -66,6 +77,11 @@ to look to see where things stand. Newest entry at the top.
   in-memory screen state first, real routes later. Neon CLI authenticated (org Growwstacks,
   project `Reflex` / divine-unit-90472716); DB stays out of the portal — the frontend holds no
   secret, only the API talks to Neon.
+
+### (stack) — Portal framework switched to React + Vite
+- **Did:** recorded D13; updated CLAUDE.md, ARCHITECTURE.md, RUNBOOK.md, README.md to React/Vite.
+- **Next:** scaffold apps/portal as a Vite + React + TypeScript SPA.
+- **Notes:** extension unaffected (MV3). Server logic stays in the API + Worker.
 
 ### (seed) — Project bootstrapped
 - **Did:** Created the scaffold — `CLAUDE.md`, the `docs/` tree (ARCHITECTURE, SCHEMA,

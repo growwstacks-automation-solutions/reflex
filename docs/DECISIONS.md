@@ -69,11 +69,12 @@ use case=teal, department=blue, industry=amber). Built for non-technical reps: o
 view. · Locked.
 
 ### D13 — Portal framework: React + Vite (SPA), not Next.js
-The portal is an internal, authenticated single-page app behind login — no SSR, SEO, or
-server-rendering needs that would justify Next.js. React + Vite gives a lighter, faster
-client-only build, and the portal-v3 design kit is already plain React + CSS-variable styling
-that ports directly. Reverses the earlier "Next.js (App Router)" line in CLAUDE.md's tech
-stack. · 2026-06-23 · founder call; reopened the previously-fixed stack.
+The portal is a dashboard that talks to a separate API and a Cloudflare Worker — all server
+logic lives there, not in the portal. So Next.js's SSR, server components, and API routes are
+unused weight here, while its Cloudflare adapter (@opennextjs/cloudflare / next-on-pages) adds
+deploy complexity and version caveats. A Vite-built React SPA deploys to Cloudflare Pages (or
+Workers static assets) as plain static files with no adapter. Cleaner for this architecture.
+The extension is unaffected (MV3 vanilla JS). · Locked — supersedes the earlier Next.js choice.
 
 ---
 
