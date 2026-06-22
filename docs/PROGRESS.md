@@ -58,8 +58,9 @@ to look to see where things stand. Newest entry at the top.
   parallel agents; wired an interim `App.tsx` root (sidebar + board + peek + theme; other screens
   are placeholders) and a `bell.tsx` BellButton stub. Static integration check clean — all `@/`
   imports resolve, no window/global residue.
-- **Verified:** Not yet typechecked here (no node_modules). Run `cd apps/portal && npm install &&
-  npm run dev` — board renders from mock data; filters/tabs/peek/assign work; dark mode toggles.
+- **Verified:** `npm install` + `npm run typecheck` clean (added `@types/node` for the Vite
+  config); `npm run dev` serves at :3000 and the whole module graph (incl. the `@/` alias)
+  transforms. In-browser visual eyeball still pending Manish.
 - **Next:** Phase 3 — ProposalWorkspaceV3, BellPopup (real bell), OtherScreens (Conversations,
   Proposals, Reporting, Assets), and the full AppV3 state machine replacing the interim root.
 - **Notes:** `App.tsx` is an interim Phase-2 root; the real AppV3 state machine lands in Phase 3.
