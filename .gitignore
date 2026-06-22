@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# Environment / secrets (never committed — see docs/RUNBOOK.md)
+.env
+.env.local
+.env*.local
+
+# Dependencies / build output
+node_modules/
+dist/
+build/
