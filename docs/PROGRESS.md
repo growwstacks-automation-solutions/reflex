@@ -16,7 +16,7 @@ to look to see where things stand. Newest entry at the top.
 | Backend API | Not started |
 | Cloudflare Worker (ingestion + AI) | Not started |
 | Auth + RLS | Not started |
-| Portal app | In progress — Phase 1 primitives + mock data ported (screens next) |
+| Portal app | In progress — Phase 2: Shell + Job board + detail peek wired (Phase 3 screens next) |
 
 ---
 
@@ -51,6 +51,19 @@ to look to see where things stand. Newest entry at the top.
 > - **Verified:** how it was checked (Manish runs builds/migrations himself).
 > - **Next:** the immediate next step.
 > - **Notes:** anything the next session needs to know.
+
+### 2026-06-23 — Portal Phase 2: Shell + Job board + detail peek
+- **Did:** Ported ShellV3 (Sidebar / PageHeader / NAV), JobBoardV3 (board + KPI strip + filters +
+  compact rows + skeleton/empty states), and JobDetailPeek (slide-in panel) to typed TSX via
+  parallel agents; wired an interim `App.tsx` root (sidebar + board + peek + theme; other screens
+  are placeholders) and a `bell.tsx` BellButton stub. Static integration check clean — all `@/`
+  imports resolve, no window/global residue.
+- **Verified:** Not yet typechecked here (no node_modules). Run `cd apps/portal && npm install &&
+  npm run dev` — board renders from mock data; filters/tabs/peek/assign work; dark mode toggles.
+- **Next:** Phase 3 — ProposalWorkspaceV3, BellPopup (real bell), OtherScreens (Conversations,
+  Proposals, Reporting, Assets), and the full AppV3 state machine replacing the interim root.
+- **Notes:** `App.tsx` is an interim Phase-2 root; the real AppV3 state machine lands in Phase 3.
+  BellButton is a stub (icon + badge); BellPopup replaces it.
 
 ### 2026-06-23 — Portal Phase 1: design primitives + mock data
 - **Did:** Ported the portal-v3 primitives to typed TSX (via parallel agents):
