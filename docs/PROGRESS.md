@@ -11,7 +11,7 @@ to look to see where things stand. Newest entry at the top.
 | Area | State |
 |---|---|
 | Design system (Claude Design) | In progress — foundation set, portal + extension prompts handed off |
-| Extension UI scaffold | Built (mocked, loadable) — pending rename to Reflex + real wiring |
+| Extension | DOM integration wired (top-of-card strip, cover/screening/composer fills) + REFLEX_DUMMY actions + v4 indigo theme; detail-page capture + kit-reskin pending |
 | Database schema | Written (`migrations/0000_baseline.sql`) — **not yet applied** |
 | Backend API | Not started |
 | Cloudflare Worker (ingestion + AI) | Not started |
@@ -51,6 +51,22 @@ to look to see where things stand. Newest entry at the top.
 > - **Verified:** how it was checked (Manish runs builds/migrations himself).
 > - **Next:** the immediate next step.
 > - **Notes:** anything the next session needs to know.
+
+### 2026-06-23 — Extension: DOM integration, dummy mode, v4 indigo
+- **Did:** Wired the content script to the real Upwork anchors (`docs/UPWORK-ANCHORS.md`):
+  top-of-card Reflex strip (debounced, idempotent, survives SPA pagination), cover-letter +
+  screening fills (native setter), Tiptap composer (editor-aware). Added `REFLEX_DUMMY` mode +
+  `dummyData` so the flow is live pre-backend: search Generate → opens the job **detail** page,
+  Add to Reflex flips state, proposal page **"Generate & prefill everything"** sets profile
+  (freelancer) + rate ($30) + rate-increase (Never) + cover + all screening + image attach, plus
+  a portfolio-picks list. Applied Manish's **verified** proposal selectors (`#step-rate`, custom
+  rate-increase dropdown, file input). Re-themed the whole extension to **v4 indigo**.
+- **Verified:** `node --check` clean. NOT live-tested on Upwork by Claude — Manish reloads the
+  unpacked extension and tests on real pages.
+- **Next:** detail-page Reflex strip + job/client capture + AI client-name suggestion (spec
+  sections 2–4, dummy); reconcile panel/launcher to the `ui_kits/extension` kit; replace the
+  ImageKit placeholder URLs; move the verified selectors into `UPWORK-ANCHORS.md`.
+- **Notes:** Reactive-only — no auto-submit, no crawling. Generated prose marked "[SAMPLE …]".
 
 ### 2026-06-23 — Portal v4 re-theme (theme layer + sidebar)
 - **Did:** Added the v4 "energetic" theme token layer (`src/styles/theme-v4.css` — indigo primary,
