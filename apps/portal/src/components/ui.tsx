@@ -7,10 +7,10 @@ import type { Job, Person } from "@/lib/types";
 /* ---- Job quality chip: good · medium · poor (color is signal) ---- */
 export type Quality = "good" | "medium" | "poor";
 
-export const QUALITY: Record<Quality, { label: string; fill: string; text: string }> = {
-  good: { label: "Good fit", fill: "var(--relevant-fill)", text: "var(--relevant-text)" },
-  medium: { label: "Medium fit", fill: "var(--review-fill)", text: "var(--review-text)" },
-  poor: { label: "Poor fit", fill: "var(--irrelevant-fill)", text: "var(--irrelevant-text)" },
+export const QUALITY: Record<Quality, { label: string; bg: string; on: string }> = {
+  good: { label: "Good fit", bg: "var(--status-good)", on: "var(--status-good-on)" },
+  medium: { label: "Medium fit", bg: "var(--status-warn)", on: "var(--status-warn-on)" },
+  poor: { label: "Poor fit", bg: "var(--status-bad)", on: "var(--status-bad-on)" },
 };
 
 export function QualityChip({ quality, dense }: { quality: Quality; dense?: boolean }) {
@@ -21,17 +21,17 @@ export function QualityChip({ quality, dense }: { quality: Quality; dense?: bool
         display: "inline-flex",
         alignItems: "center",
         gap: 5,
-        background: q.fill,
-        color: q.text,
+        background: q.bg,
+        color: q.on,
         fontSize: dense ? 11.5 : 12,
-        fontWeight: 600,
-        padding: dense ? "2px 8px" : "3px 9px",
+        fontWeight: 700,
+        letterSpacing: "0.01em",
+        padding: dense ? "4px 9px" : "4px 10px",
         borderRadius: "var(--radius-pill)",
         whiteSpace: "nowrap",
         lineHeight: 1.2,
       }}
     >
-      <span style={{ width: 6, height: 6, borderRadius: 999, background: q.text, opacity: 0.85 }}></span>
       {q.label}
     </span>
   );

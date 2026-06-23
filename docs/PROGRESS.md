@@ -16,7 +16,7 @@ to look to see where things stand. Newest entry at the top.
 | Backend API | Not started |
 | Cloudflare Worker (ingestion + AI) | Not started |
 | Auth + RLS | Not started |
-| Portal app | v4 re-theme in progress — indigo theme layer + sidebar done; component refresh (buttons/pills/KPI cards) pending |
+| Portal app | v4 re-theme in progress — theme + sidebar + indigo buttons + solid relevance/quality pills done; KPI cards + remaining screens pending |
 
 ---
 
