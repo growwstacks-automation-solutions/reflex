@@ -13,7 +13,7 @@ to look to see where things stand. Newest entry at the top.
 | Design system (Claude Design) | In progress — foundation set, portal + extension prompts handed off |
 | Extension | DOM integration wired (top-of-card strip, cover/screening/composer fills) + REFLEX_DUMMY actions + v4 indigo theme; detail-page capture + kit-reskin pending |
 | Database schema | **Live on Neon** — baseline applied; seeded 4 users + migrated 570 jobs / 570 assignments / 429 proposals from Airtable |
-| Backend API | Not started |
+| Backend API | **`POST /auth/login` + `GET /board`** live & smoke-tested (JWT via jose, bcrypt via bcryptjs, Path-B board query incl. `quality`) |
 | Cloudflare Worker — AI plane (`POST /generate`) | **Verified live in stub mode** (₹0.34 / ~1.5k tok per gen, Haiku 4.5); real mode + cache discount pending |
 | Cloudflare Worker — ingestion (poller + classifier) | Not started |
 | Auth + RLS | Not started |
@@ -45,6 +45,24 @@ to look to see where things stand. Newest entry at the top.
 ---
 
 ## Session log
+
+### 2026-06-23 — API: auth + board slice (`POST /auth/login`, `GET /board`)
+- **Did:** Two endpoints on `apps/api`. **`POST /auth/login`** verifies the bcrypt hash (`bcryptjs`),
+  gates on `active`, issues a 7-day HS256 JWT (`jose`) `{sub,email,role}`; **indistinguishable 401**
+  for unknown-email vs wrong-password, **403** for disabled, 400 for malformed. **`GET /board`**
+  verifies the Bearer JWT and runs a **parameterized Path-B query** (`jobs ⋈ job_assignments` on the
+  rep's `user_id`, live assignments only) returning the rich card columns **incl. `quality`**, ordered
+  `posted_at desc`. New shared `http.ts` (CORS+json), `auth.ts`, `board.ts`; `index.ts` routing
+  extended; `Env`/CORS/`.dev.vars.example` gained `JWT_SECRET`.
+- **Verified:** `tsc` clean; deps `jose` + `bcryptjs` added. Full smoke suite **T1–T9 green** — login
+  returns a 7d token with **no hash**; wrong-pw and unknown-email both 401 (byte-identical);
+  malformed→400; inactive→403 (toggled + reset to active). Board: **245 jobs for Sachin**, every row
+  has `quality`, ordered desc, and **board count == direct SQL (245)**; no/garbage token→401.
+- **Next:** wire the portal (login screen + swap `mock-data.ts` → `fetch /board` with the token);
+  then claim/submit endpoints; RLS hardening.
+- **Notes:** Path B chosen over `board_for_user()` — that function is stale (lacks the post-0001
+  columns), returns the whole board not the rep's, and widening it would be a schema change. RLS
+  still off (future hardening). `JWT_SECRET` lives in env only; secrets load at wrangler startup.
 
 ### 2026-06-23 — DB live: baseline applied + users seeded + Airtable jobs migrated
 - **Did:** Applied `0000_baseline.sql` to Neon (14 tables, 5 enums, 4 functions — Manish ran

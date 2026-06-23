@@ -2,8 +2,12 @@
 # `wrangler dev` loads .dev.vars automatically. In production set these with:
 #   wrangler secret put ANTHROPIC_API_KEY
 #   wrangler secret put DATABASE_URL
-# The key lives ONLY in the Worker env — the extension and portal never see it.
+#   wrangler secret put JWT_SECRET
+# The keys live ONLY in the Worker env — the extension and portal never see them.
 
 ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
 # Only needed when REFLEX_GENERATION_STUB="false" (real mode reads Neon).
 DATABASE_URL=postgres://USER:PASSWORD@HOST/DB?sslmode=require
+# Signs/verifies login JWTs (POST /auth/login, GET /board). Generate your own:
+#   openssl rand -base64 48
+JWT_SECRET=replace-with-a-long-random-string
