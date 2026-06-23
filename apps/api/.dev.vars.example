@@ -1,0 +1,9 @@
+# Copy to apps/api/.dev.vars (gitignored) and fill with real values.
+# `wrangler dev` loads .dev.vars automatically. In production set these with:
+#   wrangler secret put ANTHROPIC_API_KEY
+#   wrangler secret put DATABASE_URL
+# The key lives ONLY in the Worker env — the extension and portal never see it.
+
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxx
+# Only needed when REFLEX_GENERATION_STUB="false" (real mode reads Neon).
+DATABASE_URL=postgres://USER:PASSWORD@HOST/DB?sslmode=require

@@ -14,8 +14,14 @@ node_modules/
 dist/
 build/
 
+# Cloudflare Workers local dev/build cache
+.wrangler/
+
 # React/Vite
 .next/
 out/
 next-env.d.ts
 *.tsbuildinfo
+
+#API Creds
+apps/api/.dev.vars
