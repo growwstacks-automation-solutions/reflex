@@ -12,9 +12,10 @@ to look to see where things stand. Newest entry at the top.
 |---|---|
 | Design system (Claude Design) | In progress — foundation set, portal + extension prompts handed off |
 | Extension | DOM integration wired (top-of-card strip, cover/screening/composer fills) + REFLEX_DUMMY actions + v4 indigo theme; detail-page capture + kit-reskin pending |
-| Database schema | Written (`migrations/0000_baseline.sql`) — **not yet applied** |
+| Database schema | **Live on Neon** — baseline applied; seeded 4 users + migrated 570 jobs / 570 assignments / 429 proposals from Airtable |
 | Backend API | Not started |
-| Cloudflare Worker (ingestion + AI) | Not started |
+| Cloudflare Worker — AI plane (`POST /generate`) | **Verified live in stub mode** (₹0.34 / ~1.5k tok per gen, Haiku 4.5); real mode + cache discount pending |
+| Cloudflare Worker — ingestion (poller + classifier) | Not started |
 | Auth + RLS | Not started |
 | Portal app | v4 re-theme in progress — theme + sidebar + indigo buttons + solid relevance/quality pills done; KPI cards + remaining screens pending |
 
@@ -22,8 +23,9 @@ to look to see where things stand. Newest entry at the top.
 
 ## Next up (in order)
 
-1. Apply `0000_baseline.sql` to Neon (Manish, owner creds). Seed the four taxonomy tables
-   from the current Airtable categories.
+1. ~~Apply `0000_baseline.sql` to Neon~~ ✅ done. Still pending: seed the four taxonomy
+   tables (`tools`/`use_cases`/`departments`/`industries`) — currently empty; the migrated
+   jobs have NULL taxonomy FKs until the classifier (or a backfill) assigns them.
 2. Backend: auth (email/password → JWT, active check) + board read (`board_for_user`) + claim
    (`claim_job`). This makes the portal job board come alive.
 3. Cloudflare Worker: job poller + classifier (fixes the lag, fills the board).
@@ -43,6 +45,46 @@ to look to see where things stand. Newest entry at the top.
 ---
 
 ## Session log
+
+### 2026-06-23 — DB live: baseline applied + users seeded + Airtable jobs migrated
+- **Did:** Applied `0000_baseline.sql` to Neon (14 tables, 5 enums, 4 functions — Manish ran
+  `psql -f` with owner creds). Seeded **4 users** (Manish admin + Neha/Sachin/Sarthak reps;
+  passwords bcrypt-hashed in-DB via pgcrypto `crypt()`/`gen_salt('bf',10)`). Migrated the
+  Airtable Upwork-jobs export (two CSVs, **570 rows**) via a `staging_jobs` table + ordered
+  `INSERT…SELECT` fan-out: **570 jobs** (verdict ← Relevance with `needs_review`→`review`,
+  Quality folded into `reason` as a `[…]` prefix, `budget_text` composed from fixed/hourly,
+  `posted_at` parsed from `DD/MM/YYYY HH12:MIam`), **570 job_assignments** (owner ← `Picked by`),
+  **429 proposals** (Submitted + In Contact rows; `submitted_at` ← Proposal Date Time,
+  `token_cost_inr` ← Token Cost INR). Staging dropped after load.
+- **Verified:** Counts match source exactly (verdict 442/66/62; assignments Sachin 245 /
+  Sarthak 179 / Neha 146). Smoke-tested through the real `board_for_user()` → 508 board rows
+  (62 irrelevant filtered), 418 actioned, 0 available. All 570 have a reason; 451 have a budget.
+- **Next:** Backend auth + `GET /board` so the portal consumes this live data; seed the 4 taxonomy
+  tables; flip Worker `REFLEX_GENERATION_STUB="false"` to read real jobs.
+- **Notes:** No `quality` column in schema → Quality preserved as a `reason` prefix; recommend a
+  later `0001_add_job_quality.sql` to split it into its own column. Dates stored as UTC from the
+  naive `DD/MM/YYYY` strings (no source tz). 🔑 The Neon password used is still the exposed one —
+  rotate now that real data is in.
+
+### 2026-06-23 — API: proposal generation Worker (`POST /generate`)
+- **Did:** Scaffolded `apps/api/` as a Cloudflare Worker. `POST /generate` builds the prompt from
+  the editable `reflex-proposal-prompt.template.txt` (split at `[DYNAMIC BLOCK]`: cached
+  instructions + portfolio index → cached `system`; per-job `{{slots}}` → `user`), calls Claude
+  **Haiku 4.5** via `@anthropic-ai/sdk` with `cache_control` on the cached block, parses the JSON
+  proposal defensively, computes **₹ cost** from the token-usage breakdown, and returns
+  `{cover_letter, screening_answers, portfolio_recommendations, client_name_used, cost_inr, tokens, usage}`.
+  **Stub mode** (`REFLEX_GENERATION_STUB="true"`) uses a hardcoded job (no DB); **real mode**
+  reads Neon via `@neondatabase/serverless` by `upwork_job_id`/`id`. Key held server-side only
+  (`.dev.vars` local / `wrangler secret put` prod). CORS enabled for the extension. Renamed a
+  stray `apps/api/dev.vars` → `.dev.vars` (the un-dotted name was **not** gitignored — key-leak risk).
+- **Verified:** Not run by Claude (no node_modules; needs the Anthropic key). Manish runs
+  `npm install && npm run typecheck && npm run dev` and the curl smoke test in `apps/api/README.md`.
+- **Next:** flip `REFLEX_GENERATION_STUB="false"` after `0000_baseline.sql` is applied; wire the
+  real 74-item portfolio index (then caching actually discounts); point the extension at the
+  endpoint (flip `REFLEX_DUMMY=false`).
+- **Notes:** Screening questions / client-name hint aren't in the schema — they come from the
+  request body (the extension captures them on the page). Reactive-only: generation never submits.
+
 
 > Template for each entry — copy this block to the top when you finish a session:
 >
