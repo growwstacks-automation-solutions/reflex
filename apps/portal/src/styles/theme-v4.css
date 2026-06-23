@@ -1,0 +1,98 @@
+/* ============================================================
+   Reflex V4 — "Fast, confident, alive."
+   Energetic token layer. Loaded AFTER the base tokens, so it overrides
+   the V3 (calm editorial) tokens in place. Every component in the
+   portal is token-driven, so this one file re-skins the whole app.
+
+   DISCIPLINE: vibrant accent system on a CALM canvas. Loud color is
+   reserved for MEANING (status, primary action). The canvas stays
+   quiet so the signals shout.
+   ============================================================ */
+
+:root {
+  /* ── HERO: electric indigo (replaces terracotta as primary) ── */
+  --indigo-50:  #EEF0FF;   /* subtle bg, selected rows, soft hover */
+  --indigo-100: #DDE1FF;   /* tint border, ring halo */
+  --indigo-200: #C2C7FF;
+  --indigo-500: #4F46E5;   /* PRIMARY — buttons, active nav, links, focus */
+  --indigo-600: #4035C9;   /* hover / press (lift + darken) */
+  --indigo-700: #322AA6;   /* text on tint, deepest */
+
+  /* ── SECONDARY: terracotta — demoted, warm highlight only ── */
+  --terracotta-50:  #FBEDE8;
+  --terracotta-100: #F6CBB9;
+  --terracotta-500: #D85A30;
+  --terracotta-700: #9E3D1C;
+  --terracotta-900: #4A1B0C;
+
+  /* ── CANVAS: cooler, crisper neutral (away from warm beige) ── */
+  --canvas:        #F6F7FB;   /* page background — light cool gray */
+  --surface:       #FFFFFF;   /* cards, panels — sit ABOVE the canvas */
+  --surface-2:     #EFF1F7;   /* raised / secondary blocks */
+  --border:        rgba(18,22,40,0.09);   /* crisp cool hairline */
+  --text-primary:  #10131F;   /* near-black headings — strong contrast */
+  --text-secondary:#565E73;   /* medium gray body */
+  --text-tertiary: #8B92A6;   /* meta */
+
+  /* ── STATUS: loud + consistent ──
+     Two layers per status:
+       *-text / *-fill  → vivid colored text on a light tint (soft uses,
+                          KPI deltas, inline confirmations)
+       *  / *-on        → SOLID saturated pill + its legible text color
+     Status pills (relevance / quality) use the SOLID layer. */
+  --relevant-text:  #0B8A4B;  --relevant-fill:  #DCF7E9;
+  --review-text:    #B26A00;  --review-fill:    #FCEFD4;
+  --irrelevant-text:#C5283D;  --irrelevant-fill:#FCE5E7;
+  --info-text:      #1E5FD0;  --info-fill:      #E4EDFD;
+
+  --status-good: #15A55B;  --status-good-on: #FFFFFF;   /* vivid green  */
+  --status-warn: #F6A609;  --status-warn-on: #3A2900;   /* strong amber */
+  --status-bad:  #E23D4B;  --status-bad-on:  #FFFFFF;   /* punchy red   */
+  --status-info: #2F6BE0;  --status-info-on: #FFFFFF;
+
+  /* ── TAXONOMY chips: locked hues, crisper + more saturated ── */
+  --tax-tool-text:    #4634CA;  --tax-tool-fill:    #ECEAFE;  /* Tool — purple */
+  --tax-usecase-text: #0B7D5D;  --tax-usecase-fill: #DCF5EC;  /* Use case — teal */
+  --tax-dept-text:    #0B5BAE;  --tax-dept-fill:    #E1EEFD;  /* Department — blue */
+  --tax-industry-text:#9A5B00;  --tax-industry-fill:#FBEFD3;  /* Industry — amber */
+
+  /* ── Semantic aliases — now point at INDIGO ── */
+  --accent:         var(--indigo-500);
+  --accent-hover:   var(--indigo-600);
+  --accent-tint:    var(--indigo-50);
+  --accent-on-tint: var(--indigo-700);
+  --focus-ring:     var(--indigo-500);
+  --border-hair:    var(--border);
+
+  /* presence / "live" green dot */
+  --live: #15A55B;
+
+  /* ── Elevation: more dimensional (cards lift off the canvas) ── */
+  --shadow-sm:    0 1px 2px rgba(18,22,40,0.06), 0 1px 3px rgba(18,22,40,0.05);
+  --shadow-md:    0 6px 18px rgba(18,22,40,0.09), 0 2px 6px rgba(18,22,40,0.06);
+  --shadow-lg:    0 18px 44px rgba(18,22,40,0.16), 0 6px 14px rgba(18,22,40,0.08);
+  --shadow-panel: -10px 0 40px rgba(18,22,40,0.14);
+  --shadow-indigo:0 6px 16px rgba(79,70,229,0.30);   /* primary button glow */
+
+  /* slightly larger radii for the premium, dimensional feel */
+  --radius-card:   12px;
+  --radius-button: 9px;
+
+  /* ── Motion: fast, confident (not slow, not bouncy) ── */
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --t-fast: 130ms;
+  --t-med:  160ms;
+}
+
+/* ── Dark: keep cool, not warm-brown ── */
+[data-theme="dark"] {
+  --canvas:        #0F1117;
+  --surface:       #171A22;
+  --surface-2:     #1F232D;
+  --border:        rgba(255,255,255,0.10);
+  --text-primary:  #EEF0F6;
+  --text-secondary:#A3A9BA;
+  --text-tertiary: #6B7186;
+  --accent-tint:   rgba(79,70,229,0.18);
+  --indigo-50:     rgba(79,70,229,0.18);
+}

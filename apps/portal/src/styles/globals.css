@@ -6,6 +6,9 @@
 @import "./tokens/colors.css";
 @import "./tokens/typography.css";
 @import "./tokens/spacing.css";
+/* v4 energetic theme — overrides the base tokens in place (indigo, cool canvas,
+   loud status, dimensional shadows). Must come after the base token imports. */
+@import "./theme-v4.css";
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
@@ -17,7 +20,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 #root { height: 100%; }
-::selection { background: var(--terracotta-100); }
+::selection { background: var(--indigo-100); }
 *::-webkit-scrollbar { width: 10px; height: 10px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; border: 3px solid transparent; background-clip: content-box; }

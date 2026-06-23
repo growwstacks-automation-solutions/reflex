@@ -47,6 +47,7 @@ export function Sidebar({
             height: 28,
             borderRadius: 8,
             background: "var(--accent)",
+            boxShadow: "var(--shadow-indigo)",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
@@ -71,19 +72,20 @@ export function Sidebar({
                 alignItems: "center",
                 gap: 11,
                 width: "100%",
-                padding: "9px 10px",
+                padding: "9px 11px",
                 borderRadius: "var(--radius-button)",
                 border: "none",
                 cursor: "pointer",
                 textAlign: "left",
-                background: active ? "var(--accent-tint)" : "transparent",
-                color: active ? "var(--accent-on-tint)" : "var(--text-secondary)",
+                background: active ? "var(--indigo-500)" : "transparent",
+                color: active ? "#fff" : "var(--text-secondary)",
                 fontSize: 14,
-                fontWeight: active ? 600 : 500,
-                transition: "background 0.12s ease",
+                fontWeight: active ? 700 : 500,
+                boxShadow: active ? "var(--shadow-indigo)" : "none",
+                transition: "background var(--t-fast) var(--ease), color var(--t-fast) var(--ease)",
               }}
               onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.background = "var(--surface-2)";
+                if (!active) e.currentTarget.style.background = "var(--indigo-50)";
               }}
               onMouseLeave={(e) => {
                 if (!active) e.currentTarget.style.background = "transparent";
@@ -98,10 +100,10 @@ export function Sidebar({
                     height: 18,
                     padding: "0 5px",
                     borderRadius: 999,
-                    background: active ? "var(--accent)" : "var(--surface-2)",
+                    background: active ? "rgba(255,255,255,0.22)" : "var(--surface-2)",
                     color: active ? "#fff" : "var(--text-tertiary)",
                     fontSize: 11,
-                    fontWeight: 600,
+                    fontWeight: 700,
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -159,7 +161,7 @@ export function Sidebar({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.2 }}>Neha</div>
           <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-secondary)" }}>
-            <span style={{ width: 6, height: 6, borderRadius: 999, background: "#3FA67E" }}></span>
+            <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--live)" }}></span>
             Active
           </div>
         </div>
@@ -190,7 +192,7 @@ export function PageHeader({
       }}
     >
       <div>
-        <h1 style={{ margin: 0, fontSize: "var(--fs-h1)", fontWeight: 600, letterSpacing: "-0.02em" }}>{title}</h1>
+        <h1 style={{ margin: 0, fontSize: "var(--fs-h1)", fontWeight: 700, letterSpacing: "-0.025em" }}>{title}</h1>
         {subtitle ? <p style={{ margin: "4px 0 0", fontSize: 13.5, color: "var(--text-secondary)" }}>{subtitle}</p> : null}
       </div>
       {right ? <div style={{ flex: "none" }}>{right}</div> : null}

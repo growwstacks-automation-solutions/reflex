@@ -16,7 +16,7 @@ to look to see where things stand. Newest entry at the top.
 | Backend API | Not started |
 | Cloudflare Worker (ingestion + AI) | Not started |
 | Auth + RLS | Not started |
-| Portal app | UI complete — all v3 screens ported (board, workspace, conversations, reporting, assets, bell), mock data; API wiring pending |
+| Portal app | v4 re-theme in progress — indigo theme layer + sidebar done; component refresh (buttons/pills/KPI cards) pending |
 
 ---
 
@@ -51,6 +51,17 @@ to look to see where things stand. Newest entry at the top.
 > - **Verified:** how it was checked (Manish runs builds/migrations himself).
 > - **Next:** the immediate next step.
 > - **Notes:** anything the next session needs to know.
+
+### 2026-06-23 — Portal v4 re-theme (theme layer + sidebar)
+- **Did:** Added the v4 "energetic" theme token layer (`src/styles/theme-v4.css` — indigo primary,
+  cool canvas, solid status colors, dimensional shadows, larger radii) imported after the base
+  tokens; updated the sidebar (Shell.tsx) to v4 (solid-indigo active nav + glow, indigo-tint
+  hover, brand-mark glow, live dot). `::selection` → indigo.
+- **Verified:** `npm run typecheck` clean; visible on the running dev server.
+- **Next:** v4 component refresh — Button (indigo + glow), solid relevance/quality pills,
+  dimensional KPI cards, filter tones, row hover, + the other screens.
+- **Notes:** Re-themes everything token-driven; components that hardcode terracotta or tint-pills
+  (Button, RelevanceBadge, QualityChip, KpiStrip) still need the refresh for the full v4 look.
 
 ### 2026-06-23 — Portal Phase 3: workspace, bell, other screens + AppV3 root
 - **Did:** Ported ProposalWorkspaceV3 (two-column workspace, regenerate confirm, copy/insert),
