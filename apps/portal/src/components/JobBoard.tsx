@@ -1,4 +1,4 @@
-/* Reflex portal v3 — Job board: header, KPI strip, filters, compact rows, loading/empty. */
+/* Reflex portal v3 — Job board: header, KPI strip, filters, compact rows, loading/error/empty. */
 
 import { useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
@@ -7,8 +7,7 @@ import { Button, TaxonomyChip, RelevanceBadge } from "@/components/ds";
 import { Card, QualityChip, Ownership, Mono } from "@/components/ui";
 import { PageHeader } from "@/components/Shell";
 import { BellButton } from "@/components/bell";
-import { RX_DATA } from "@/lib/mock-data";
-import type { Job, ActionLink, Kpi } from "@/lib/types";
+import type { Job, ActionLink } from "@/lib/types";
 
 export type TabId = "mine" | "available" | "all";
 
@@ -153,10 +152,12 @@ export function JobRow({
         <span style={{ fontSize: 14.5, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{job.title}</span>
       </div>
 
-      {/* Line 2: taxonomy chips */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-        {job.chips.map((c, i) => <TaxonomyChip key={i} level={c.level} isNew={c.isNew}>{c.label}</TaxonomyChip>)}
-      </div>
+      {/* Line 2: taxonomy chips (empty until the classifier/taxonomy backfill runs) */}
+      {job.chips.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          {job.chips.map((c, i) => <TaxonomyChip key={i} level={c.level} isNew={c.isNew}>{c.label}</TaxonomyChip>)}
+        </div>
+      )}
 
       {/* Line 3: reason for selection (quiet) */}
       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 11, color: "var(--text-tertiary)" }}>
@@ -186,24 +187,60 @@ function SkeletonRow(): JSX.Element {
   return (
     <div style={{ padding: "14px 18px", borderBottom: "1px solid var(--border)" }}>
       <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>{bar(70)}{bar(64)}{bar("38%")}</div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>{bar(48)}{bar(60)}{bar(44)}{bar(52)}</div>
       <div style={{ marginBottom: 11 }}>{bar("55%")}</div>
       <div style={{ display: "flex", gap: 14 }}>{bar(90)}{bar(50)}{bar(70)}</div>
     </div>
   );
 }
 
-function KpiStrip(): JSX.Element {
-  const kpis = RX_DATA.kpis;
+/* Empty / error states — honest, never mock fallback. */
+function EmptyState({ boardEmpty }: { boardEmpty: boolean }): JSX.Element {
+  return (
+    <div style={{ padding: "60px 20px", textAlign: "center" }}>
+      <div style={{ width: 46, height: 46, borderRadius: 12, background: "var(--surface-2)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--text-tertiary)", marginBottom: 14 }}>
+        <RXIcons.board size={22} />
+      </div>
+      <div style={{ fontFamily: "var(--font-accent)", fontSize: 19, marginBottom: 5 }}>
+        {boardEmpty ? "No jobs on your board yet" : "No jobs match these filters"}
+      </div>
+      <div style={{ fontSize: 13.5, color: "var(--text-secondary)" }}>
+        {boardEmpty ? "New jobs appear here as they're assigned to you." : "Clear a filter or switch tabs to see more."}
+      </div>
+    </div>
+  );
+}
+
+function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }): JSX.Element {
+  return (
+    <div style={{ padding: "54px 20px", textAlign: "center" }}>
+      <div style={{ width: 46, height: 46, borderRadius: 12, background: "var(--irrelevant-fill, var(--surface-2))", color: "var(--irrelevant-text)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 14 }}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+        </svg>
+      </div>
+      <div style={{ fontFamily: "var(--font-accent)", fontSize: 19, marginBottom: 5 }}>Couldn't load the board</div>
+      <div style={{ fontSize: 13.5, color: "var(--text-secondary)", marginBottom: 16 }}>{message}</div>
+      {onRetry && <Button variant="secondary" size="sm" onClick={onRetry}>Try again</Button>}
+    </div>
+  );
+}
+
+function KpiStrip({ jobs }: { jobs: Job[] }): JSX.Element {
+  const count = (pred: (j: Job) => boolean) => jobs.filter(pred).length;
+  const kpis = [
+    { label: "On your board", value: String(jobs.length) },
+    { label: "Relevant", value: String(count((j) => j.relevance === "relevant")) },
+    { label: "Needs review", value: String(count((j) => j.relevance === "review")) },
+    { label: "Submitted", value: String(count((j) => j.actionState === "submitted")) },
+  ];
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 18 }}>
-      {kpis.map((k: Kpi, i) => (
+      {kpis.map((k, i) => (
         <Card key={i} style={{ background: "var(--bg-raised)", boxShadow: "none" }} pad="14px 16px">
           <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 6 }}>{k.label}</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: 26, fontWeight: 600, fontFamily: "var(--font-mono)", letterSpacing: "-0.02em" }}>{k.value}</span>
-            {k.delta && <span style={{ fontSize: 12.5, fontWeight: 600, color: k.deltaTone === "good" ? "var(--relevant-text)" : "var(--text-tertiary)", fontFamily: "var(--font-mono)" }}>{k.delta}</span>}
-            {k.sub && <span style={{ fontSize: 12, color: "var(--text-tertiary)" }}>{k.sub}</span>}
           </div>
         </Card>
       ))}
@@ -220,6 +257,9 @@ export function JobBoard({
   onAssign,
   onRegenerate,
   loading,
+  jobs,
+  error,
+  onRetry,
 }: {
   tab: TabId;
   setTab: (id: TabId) => void;
@@ -229,14 +269,17 @@ export function JobBoard({
   onAssign: (job: Job) => void;
   onRegenerate: (job: Job) => void;
   loading: boolean;
+  jobs: Job[];
+  error?: string | null;
+  onRetry?: () => void;
 }): JSX.Element {
-  const [rel, setRel] = useState<"all" | "relevant" | "review">("all");  // all | relevant | review
-  const [quality, setQuality] = useState<string[]>([]);                  // multi: good/medium/poor
-  const [cats, setCats] = useState<string[]>([]);                        // multi: GHL / AI agents / Voice / Cloud
+  const [rel, setRel] = useState<"all" | "relevant" | "review">("all");
+  const [quality, setQuality] = useState<string[]>([]);
+  const [cats, setCats] = useState<string[]>([]);
 
   const toggle = (arr: string[], set: (v: string[]) => void, v: string) => set(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
 
-  const jobs = RX_DATA.jobs.filter(j => {
+  const visible = jobs.filter(j => {
     if (tab === "mine" && j.ownership !== "mine") return false;
     if (tab === "available" && j.ownership !== "available") return false;
     if (rel === "relevant" && j.relevance !== "relevant") return false;
@@ -249,6 +292,7 @@ export function JobBoard({
   const QUAL_PILLS = [
     { id: "good", label: "Good", dot: "var(--relevant-text)" },
     { id: "medium", label: "Medium", dot: "var(--review-text)" },
+    { id: "watch", label: "Watch", dot: "var(--info-text)" },
     { id: "poor", label: "Poor", dot: "var(--irrelevant-text)" },
   ];
   const CATS = ["GHL", "AI agents", "Voice", "Cloud"];
@@ -257,7 +301,7 @@ export function JobBoard({
     <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
       <Segmented value={tab} onChange={setTab} options={TABS} />
       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--text-tertiary)" }}>
-        <RXIcons.sync size={14} /> <span style={{ fontFamily: "var(--font-mono)" }}>synced 2 min ago</span>
+        <RXIcons.sync size={14} /> <span style={{ fontFamily: "var(--font-mono)" }}>live</span>
       </span>
       <BellButton onNavigate={onNavigate} />
     </div>
@@ -268,7 +312,7 @@ export function JobBoard({
       <PageHeader title="Job board" subtitle="Read the job, decide if it's worth it, act in one click." right={headerRight} />
 
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
-        <KpiStrip />
+        <KpiStrip jobs={jobs} />
 
         {/* Filters */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
@@ -296,20 +340,15 @@ export function JobBoard({
         <Card pad="0" style={{ overflow: "hidden" }}>
           {loading ? (
             <>{[0, 1, 2, 3].map(i => <SkeletonRow key={i} />)}</>
-          ) : jobs.length === 0 ? (
-            <div style={{ padding: "60px 20px", textAlign: "center" }}>
-              <div style={{ width: 46, height: 46, borderRadius: 12, background: "var(--surface-2)", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--text-tertiary)", marginBottom: 14 }}>
-                <RXIcons.board size={22} />
-              </div>
-              <div style={{ fontFamily: "var(--font-accent)", fontSize: 19, marginBottom: 5 }}>No jobs match these filters</div>
-              <div style={{ fontSize: 13.5, color: "var(--text-secondary)" }}>Clear a filter or switch tabs to see more.</div>
-            </div>
+          ) : error ? (
+            <ErrorState message={error} onRetry={onRetry} />
+          ) : visible.length === 0 ? (
+            <EmptyState boardEmpty={jobs.length === 0} />
           ) : (
-            jobs.map(job => (
+            visible.map(job => (
               <JobRow key={job.id} job={job} onOpen={onOpen} onGenerate={onGenerate} onAssign={onAssign} onRegenerate={onRegenerate} />
             ))
           )}
-          {!loading && jobs.length > 0 && <div style={{ borderBottom: "none" }}></div>}
         </Card>
       </div>
     </div>

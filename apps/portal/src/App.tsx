@@ -13,6 +13,10 @@ import { Card } from "@/components/ui";
 import { RXIcons } from "@/components/icons";
 import { RX_DATA } from "@/lib/mock-data";
 import type { ActionLink, Job } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import { LoginScreen } from "@/components/LoginScreen";
+import { fetchBoard, UnauthorizedError } from "@/lib/api";
+import { adaptJob } from "@/lib/adapt-job";
 
 /* The "Proposals" screen — drafts/submissions the rep is working. */
 function ProposalsScreen({
@@ -48,12 +52,16 @@ function ProposalsScreen({
 
 /* App state machine: theme, screens, peek, workspace, bell deep-links. */
 export default function App() {
+  const auth = useAuth();
   const [dark, setDark] = useState(false);
   const [screen, setScreen] = useState<Screen>("board");
   const [tab, setTab] = useState<TabId>("all");
   const [peekJob, setPeekJob] = useState<Job | null>(null);
   const [workspace, setWorkspace] = useState<{ job: Job; status: WorkspaceStatus; regen: boolean } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [boardJobs, setBoardJobs] = useState<Job[]>([]);
+  const [boardLoading, setBoardLoading] = useState(true);
+  const [boardError, setBoardError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [convoId, setConvoId] = useState<string | null>(null);
   const [, force] = useReducer((x: number) => x + 1, 0);
 
@@ -61,13 +69,31 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
   }, [dark]);
 
-  // Board loading shimmer on tab change.
+  // Load the rep's real board from the API once authenticated (and on retry).
   useEffect(() => {
-    if (screen !== "board") return;
-    setLoading(true);
-    const t = setTimeout(() => setLoading(false), 650);
-    return () => clearTimeout(t);
-  }, [tab, screen]);
+    if (!auth.token) return;
+    let cancelled = false;
+    setBoardLoading(true);
+    setBoardError(null);
+    fetchBoard(auth.token)
+      .then((rows) => {
+        if (cancelled) return;
+        setBoardJobs(rows.map(adaptJob));
+        setBoardLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof UnauthorizedError) {
+          auth.signOut();
+          return;
+        }
+        setBoardError(err instanceof Error ? err.message : "Failed to load the board.");
+        setBoardLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.token, reloadKey]);
 
   const openWorkspace = (job: Job, status?: WorkspaceStatus, regen?: boolean) => {
     setPeekJob(null);
@@ -113,6 +139,8 @@ export default function App() {
     setScreen(id);
   };
 
+  if (!auth.isAuthenticated) return <LoginScreen />;
+
   return (
     <div style={{ display: "flex", height: "100%" }}>
       <Sidebar screen={screen} setScreen={setNav} dark={dark} setDark={setDark} />
@@ -121,7 +149,10 @@ export default function App() {
           <JobBoard
             tab={tab}
             setTab={setTab}
-            loading={loading}
+            loading={boardLoading}
+            jobs={boardJobs}
+            error={boardError}
+            onRetry={() => setReloadKey((k) => k + 1)}
             onNavigate={navigate}
             onOpen={setPeekJob}
             onGenerate={onGenerate}

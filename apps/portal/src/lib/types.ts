@@ -23,7 +23,7 @@ export interface Job {
   id: string;
   title: string;
   relevance: "relevant" | "review" | "irrelevant";
-  quality: "good" | "medium" | "poor";
+  quality: "good" | "medium" | "watch" | "poor";
   reason: string;
   chips: TaxonomyChipData[];
   ownership: "mine" | "other" | "available";

@@ -5,11 +5,12 @@ import { RXIcons } from "./icons";
 import type { Job, Person } from "@/lib/types";
 
 /* ---- Job quality chip: good · medium · poor (color is signal) ---- */
-export type Quality = "good" | "medium" | "poor";
+export type Quality = "good" | "medium" | "watch" | "poor";
 
 export const QUALITY: Record<Quality, { label: string; bg: string; on: string }> = {
   good: { label: "Good fit", bg: "var(--status-good)", on: "var(--status-good-on)" },
   medium: { label: "Medium fit", bg: "var(--status-warn)", on: "var(--status-warn-on)" },
+  watch: { label: "Watch", bg: "var(--status-info)", on: "var(--status-info-on)" },
   poor: { label: "Poor fit", bg: "var(--status-bad)", on: "var(--status-bad-on)" },
 };
 

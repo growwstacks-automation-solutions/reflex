@@ -3,7 +3,7 @@ import type React from "react";
 import { RXIcons } from "@/components/icons";
 import type { RXIconProps } from "@/components/icons";
 import { Avatar } from "@/components/ui";
-import { RX_DATA } from "@/lib/mock-data";
+import { useAuth } from "@/lib/auth";
 
 export type Screen = "board" | "convos" | "props" | "report" | "assets" | "workspace";
 
@@ -26,6 +26,8 @@ export function Sidebar({
   dark: boolean;
   setDark: React.Dispatch<React.SetStateAction<boolean>>;
 }): JSX.Element {
+  const { user, signOut } = useAuth();
+  const person = { name: user?.full_name || "Rep", bg: "var(--accent)", fg: "#fff" };
   return (
     <aside
       style={{
@@ -145,7 +147,7 @@ export function Sidebar({
         <span>{dark ? "Light mode" : "Dark mode"}</span>
       </button>
 
-      {/* User */}
+      {/* User + sign out */}
       <div
         style={{
           display: "flex",
@@ -157,14 +159,39 @@ export function Sidebar({
           background: "var(--canvas)",
         }}
       >
-        <Avatar person={RX_DATA.C.neha} size={32} />
+        <Avatar person={person} size={32} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.2 }}>Neha</div>
+          <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {user?.full_name || "—"}
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-secondary)" }}>
             <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--live)" }}></span>
-            Active
+            {user?.role === "admin" ? "Admin" : "Rep"}
           </div>
         </div>
+        <button
+          onClick={signOut}
+          title="Sign out"
+          style={{
+            width: 30,
+            height: 30,
+            flex: "none",
+            borderRadius: "var(--radius-button)",
+            border: "1px solid var(--border)",
+            background: "var(--surface)",
+            color: "var(--text-secondary)",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+        </button>
       </div>
     </aside>
   );

@@ -17,7 +17,7 @@ to look to see where things stand. Newest entry at the top.
 | Cloudflare Worker — AI plane (`POST /generate`) | **Verified live in stub mode** (₹0.34 / ~1.5k tok per gen, Haiku 4.5); real mode + cache discount pending |
 | Cloudflare Worker — ingestion (poller + classifier) | Not started |
 | Auth + RLS | Not started |
-| Portal app | v4 re-theme in progress — theme + sidebar + indigo buttons + solid relevance/quality pills done; KPI cards + remaining screens pending |
+| Portal app | **Live board wired** — login (JWT in localStorage) + `GET /board` render the rep's real jobs via an adapter; v4 indigo throughout. Detail-panel fields + claim/submit pending |
 
 ---
 
@@ -26,8 +26,9 @@ to look to see where things stand. Newest entry at the top.
 1. ~~Apply `0000_baseline.sql` to Neon~~ ✅ done. Still pending: seed the four taxonomy
    tables (`tools`/`use_cases`/`departments`/`industries`) — currently empty; the migrated
    jobs have NULL taxonomy FKs until the classifier (or a backfill) assigns them.
-2. Backend: auth (email/password → JWT, active check) + board read (`board_for_user`) + claim
-   (`claim_job`). This makes the portal job board come alive.
+2. ~~Backend auth (JWT) + board read~~ ✅ done **and the portal is wired to it** (login + live
+   board). Remaining on this surface: detail-panel fields on `/board`, then claim (`claim_job`)
+   + mark-submitted.
 3. Cloudflare Worker: job poller + classifier (fixes the lag, fills the board).
 4. Proposal generation (RAG) + mark-submitted + the release cron.
 5. Message sync + conversations + suggested reply.
@@ -45,6 +46,27 @@ to look to see where things stand. Newest entry at the top.
 ---
 
 ## Session log
+
+### 2026-06-23 — Portal wired to the live API (login + real board)
+- **Did:** The portal now runs on real data. New `lib/api.ts` (`login` + `fetchBoard`, base from
+  `VITE_API_BASE_URL`, default :8787; typed `UnauthorizedError`), `lib/auth.tsx` (small React
+  Context + `localStorage` `reflex_token`/`reflex_user`), `lib/adapt-job.ts` (maps `/board`
+  snake_case → the `Job` shape; budget built from the structured columns, `actionState` from
+  `proposal_status`, honest `—`/empty for fields `/board` doesn't return — never faked).
+  `LoginScreen.tsx` (v4 indigo, Enter-to-submit, inline 401 error). `App.tsx` gates on the token
+  (login vs shell) and fetches the board on auth with loading/error+retry/empty states; a 401
+  auto-signs-out. `JobBoard` takes real `jobs` (KPI strip derived from them); `Shell` sidebar
+  shows the logged-in user + sign-out (was hardcoded "Neha"). Added the 4th **`watch`** quality
+  pill (`ui.tsx`/`types.ts`) — 103 jobs use it. `vite-env.d.ts` for `import.meta.env`.
+- **Verified:** `npm run typecheck` + `npm run build` green. Browser gate **passed** (Manish):
+  Neha logs in → her **146** real jobs; KPIs match SQL; **Watch** pill renders; budgets build from
+  the structured columns; wrong password → inline error; refresh persists; sign-out → login;
+  Sachin → **245** (per-rep filtering proven). No mock data on the board.
+- **Next:** detail-panel fields on `/board` (Option A — description, url, client_*); then
+  claim/submit endpoints + RLS.
+- **Notes:** Frontend holds only the JWT (localStorage; first-party only). Taxonomy chips +
+  client spend/hire/payment left as honest empties — `/board` doesn't return them yet (Option A
+  follow-up adds the client fields). `proposal_status` row badges key off `Submitted`/`In Contact`.
 
 ### 2026-06-23 — API: auth + board slice (`POST /auth/login`, `GET /board`)
 - **Did:** Two endpoints on `apps/api`. **`POST /auth/login`** verifies the bcrypt hash (`bcryptjs`),
