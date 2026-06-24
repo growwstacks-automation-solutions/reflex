@@ -13,11 +13,11 @@ to look to see where things stand. Newest entry at the top.
 | Design system (Claude Design) | In progress — foundation set, portal + extension prompts handed off |
 | Extension | DOM integration wired (top-of-card strip, cover/screening/composer fills) + REFLEX_DUMMY actions + v4 indigo theme; detail-page capture + kit-reskin pending |
 | Database schema | **Live on Neon** — baseline applied; seeded 4 users + migrated 570 jobs / 570 assignments / 429 proposals from Airtable |
-| Backend API | **`POST /auth/login` + `GET /board`** live & smoke-tested (JWT via jose, bcrypt via bcryptjs, Path-B board query incl. `quality`) |
+| Backend API | **`POST /auth/login` + `GET /board`** live & smoke-tested (JWT via jose, bcrypt via bcryptjs, Path-B board query incl. `quality` + detail-panel fields: description, url, client intel) |
 | Cloudflare Worker — AI plane (`POST /generate`) | **Verified live in stub mode** (₹0.34 / ~1.5k tok per gen, Haiku 4.5); real mode + cache discount pending |
 | Cloudflare Worker — ingestion (poller + classifier) | Not started |
 | Auth + RLS | Not started |
-| Portal app | **Live board wired** — login (JWT in localStorage) + `GET /board` render the rep's real jobs via an adapter; v4 indigo throughout. Detail-panel fields + claim/submit pending |
+| Portal app | **Live board + detail panel wired** — login (JWT in localStorage) + `GET /board` render the rep's real jobs via an adapter; detail peek shows description, real Upwork link, client snapshot. claim/submit pending |
 
 ---
 
@@ -26,9 +26,8 @@ to look to see where things stand. Newest entry at the top.
 1. ~~Apply `0000_baseline.sql` to Neon~~ ✅ done. Still pending: seed the four taxonomy
    tables (`tools`/`use_cases`/`departments`/`industries`) — currently empty; the migrated
    jobs have NULL taxonomy FKs until the classifier (or a backfill) assigns them.
-2. ~~Backend auth (JWT) + board read~~ ✅ done **and the portal is wired to it** (login + live
-   board). Remaining on this surface: detail-panel fields on `/board`, then claim (`claim_job`)
-   + mark-submitted.
+2. ~~Backend auth (JWT) + board read + portal wiring + detail-panel fields~~ ✅ done. Remaining on
+   this surface: claim (`claim_job`) + mark-submitted endpoints, then RLS hardening.
 3. Cloudflare Worker: job poller + classifier (fixes the lag, fills the board).
 4. Proposal generation (RAG) + mark-submitted + the release cron.
 5. Message sync + conversations + suggested reply.
@@ -46,6 +45,21 @@ to look to see where things stand. Newest entry at the top.
 ---
 
 ## Session log
+
+### 2026-06-24 — Detail-panel fields on /board (Option A)
+- **Did:** Enriched the slide-in JobDetailPeek with real data. Extended the `GET /board` SELECT
+  (`board.ts`) with 8 columns — `description, url, client_spend, client_city, client_timezone,
+  client_billing_type, client_payment_verified, last_client_activity` — join/filter/order
+  unchanged, still parameterized. Typed them on `ApiBoardJob` (`api.ts`); added `url?` to `Job`
+  (`types.ts`); the adapter (`adapt-job.ts`) maps description→desc, url→`Job.url`, client_spend→
+  spend, city+country→location, client_payment_verified→"Verified"/"Unverified". "Open on Upwork"
+  (`JobDetailPeek.tsx`) opens the real `url` in a new tab (`noopener`), disabled when null.
+- **Verified:** API Worker `tsc` + portal `tsc`/`vite build` all green; column names checked
+  against the migrations. Browser gate (panel eyeball) **not yet confirmed** — committed/pushed
+  ahead of it at Manish's call; the live SELECT first runs on board load.
+- **Next:** claim (`claim_job`) + mark-submitted endpoints; then RLS.
+- **Notes:** No DB change. Taxonomy chips + client **hire-rate** stay honest empties — no source
+  columns (`total_hired` is a count, not a rate); the taxonomy FKs are null in the migrated data.
 
 ### 2026-06-23 — Portal wired to the live API (login + real board)
 - **Did:** The portal now runs on real data. New `lib/api.ts` (`login` + `fetchBoard`, base from

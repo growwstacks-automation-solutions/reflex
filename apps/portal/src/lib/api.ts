@@ -34,6 +34,15 @@ export interface ApiBoardJob {
   posted_at: string | null;
   reason: string | null;
   proposal_status: string | null;
+  // detail-panel fields (Option A) — used by the slide-in JobDetailPeek, not the list rows
+  description: string | null;
+  url: string | null;
+  client_spend: string | null;
+  client_city: string | null;
+  client_timezone: string | null;
+  client_billing_type: string | null;
+  client_payment_verified: boolean | null;
+  last_client_activity: string | null;
 }
 
 /** Thrown on a 401 from a protected endpoint so the app can boot the user back to login. */

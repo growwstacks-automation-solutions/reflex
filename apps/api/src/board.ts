@@ -21,7 +21,11 @@ export async function board(req: Request, env: Env): Promise<Response> {
       j.upwork_job_id, j.title, j.verdict, j.quality, j.budget_text,
       j.contract_type, j.fixed_amount, j.hourly_min, j.hourly_max,
       j.client_country, j.client_country_code, j.connects,
-      j.posted_at, j.reason, j.proposal_status
+      j.posted_at, j.reason, j.proposal_status,
+      -- detail-panel fields (Option A): description, real Upwork url, richer client intel.
+      -- Taxonomy FKs are null in the migrated data, so they stay out of the payload.
+      j.description, j.url, j.client_spend, j.client_city, j.client_timezone,
+      j.client_billing_type, j.client_payment_verified, j.last_client_activity
     from jobs j
     join job_assignments a on a.job_id = j.id and a.released_at is null
     where a.user_id = ${user.sub}

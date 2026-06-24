@@ -1,8 +1,9 @@
 /**
  * Adapter: GET /board snake_case rows → the portal's `Job` shape (the board's contract).
  * Maps field names, builds a display budget from the structured columns (budget_text is
- * usually null), and fills slots the API doesn't return (taxonomy chips, client spend/
- * hire-rate, description) with honest empties — never invented data.
+ * usually null), and renders the detail-panel fields (description, Upwork url, client spend/
+ * location/payment). Slots with no source — taxonomy chips, client hire-rate — stay honest
+ * empties; never invented data.
  */
 import type { Job } from "./types";
 import type { ApiBoardJob } from "./api";
@@ -55,6 +56,10 @@ export function adaptJob(j: ApiBoardJob): Job {
   const relevance = (VERDICTS.has(j.verdict as Job["relevance"]) ? j.verdict : "review") as Job["relevance"];
   const connects =
     j.connects == null ? 0 : typeof j.connects === "number" ? j.connects : parseInt(String(j.connects), 10) || 0;
+  const locParts = [j.client_city, j.client_country].filter(Boolean) as string[];
+  const location = locParts.length ? locParts.join(", ") : j.client_country_code || "—";
+  const payment =
+    j.client_payment_verified == null ? "—" : j.client_payment_verified ? "Verified" : "Unverified";
 
   return {
     id: j.upwork_job_id,
@@ -69,13 +74,14 @@ export function adaptJob(j: ApiBoardJob): Job {
     connects,
     postedAgo: relativeTime(j.posted_at),
     cat: "",
-    desc: "", // /board omits the full description (kept out of the list payload)
+    desc: j.description || "",
+    url: j.url || undefined,
     classification: { tool: "", usecase: "", dept: "", industry: "" },
     client: {
-      spend: "—",
-      hireRate: "—",
-      location: j.client_country || j.client_country_code || "—",
-      payment: "—",
+      spend: j.client_spend || "—",
+      hireRate: "—", // no hire-rate column exists (total_hired is a count, not a rate) — honest empty
+      location,
+      payment,
     },
   };
 }

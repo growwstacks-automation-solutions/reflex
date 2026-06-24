@@ -36,6 +36,7 @@ export interface Job {
   postedAgo: string;
   cat: string;
   desc: string;
+  url?: string;
   classification: {
     tool: string;
     usecase: string;

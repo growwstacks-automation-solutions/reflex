@@ -35,6 +35,7 @@ export function JobDetailPeek({ job, onClose, onGenerate, onAssign }: { job: Job
   if (!job) return null;
   const cl = job.classification;
   const c = job.client;
+  const upworkUrl = job.url;
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 80 }}>
@@ -109,7 +110,15 @@ export function JobDetailPeek({ job, onClose, onGenerate, onAssign }: { job: Job
 
         {/* Footer actions */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderTop: "1px solid var(--border)" }}>
-          <Button variant="ghost" size="md" icon={<RXIcons.external size={15} />} onClick={() => {}}>Open on Upwork</Button>
+          <Button
+            variant="ghost"
+            size="md"
+            icon={<RXIcons.external size={15} />}
+            disabled={!upworkUrl}
+            onClick={() => { if (upworkUrl) window.open(upworkUrl, "_blank", "noopener,noreferrer"); }}
+          >
+            Open on Upwork
+          </Button>
           <div style={{ flex: 1 }}></div>
           {job.ownership === "available"
             ? <Button variant="secondary" onClick={() => onAssign(job)}>Assign to me</Button>
