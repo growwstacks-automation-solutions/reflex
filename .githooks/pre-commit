@@ -1,0 +1,13 @@
+#!/bin/sh
+# Reflex secret guard — refuse to commit real credentials.
+# Catches Anthropic keys, Neon passwords, and Neon hostnames in the staged diff.
+# Enable in a fresh clone with:  git config core.hooksPath .githooks
+if git diff --cached | grep -qE 'sk-ant-api[0-9]|npg_[A-Za-z0-9]{6}|\.aws\.neon\.tech'; then
+  echo ""
+  echo "🚫 COMMIT BLOCKED — a real secret (Anthropic key / Neon password / Neon host) is staged."
+  echo "   Real values belong ONLY in apps/api/.dev.vars (gitignored), never in a tracked file."
+  echo "   Unstage the file and replace the value with a placeholder, then commit again."
+  echo ""
+  exit 1
+fi
+exit 0

@@ -6,6 +6,22 @@ to look to see where things stand. Newest entry at the top.
 
 ---
 
+## Handover — start here (2026-06-24)
+
+Picking this up fresh? Read `CLAUDE.md` → this file → `docs/RUNBOOK.md` ("First-time setup").
+Current state: the **portal runs on live data** — login (JWT) + `GET /board` render each rep's
+real jobs, and the detail panel shows description / client snapshot / a real "Open on Upwork"
+link. The API Worker (`apps/api`) serves `/auth/login` + `/board` + `/generate` on **:8787**
+(wrangler dev); the portal is Vite on **:3000**; the Neon DB is live (570 jobs migrated).
+
+- **Immediate next:** claim (`claim_job`) + mark-submitted endpoints — see "Next up" below.
+- **Not yet eyeballed:** the Option A detail-panel browser gate (typecheck + build are green, but
+  no one has visually confirmed the panel renders the new fields live). Worth a 1-minute check.
+- **Local-only (not in git):** `apps/api/.dev.vars` (secrets — from Manish) and the commit
+  secret-guard (`git config core.hooksPath .githooks`). Both covered in RUNBOOK first-time setup.
+
+---
+
 ## Status at a glance
 
 | Area | State |
