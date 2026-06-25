@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useState } from "react";
 import type { ReactNode } from "react";
-import { Sidebar, PageHeader } from "@/components/Shell";
+import { Sidebar, PageHeader, NAV } from "@/components/Shell";
 import type { Screen } from "@/components/Shell";
 import { JobBoard, JobRow } from "@/components/JobBoard";
 import type { TabId } from "@/components/JobBoard";
@@ -32,7 +32,7 @@ function ProposalsScreen({
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <PageHeader title="Proposals" subtitle="Drafts and submissions you're working." right={headerRight} />
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
+      <div className="rx-page-content" style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
         <Card pad="0" style={{ overflow: "hidden" }}>
           {jobs.map((job) => (
             <JobRow
@@ -127,7 +127,7 @@ export default function App() {
 
   const headerRightSimple = (
     <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--text-tertiary)" }}>
+      <span className="rx-sync-text" style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--text-tertiary)" }}>
         <RXIcons.sync size={14} /> <span style={{ fontFamily: "var(--font-mono)" }}>synced 2 min ago</span>
       </span>
       <BellButton onNavigate={navigate} />
@@ -142,9 +142,9 @@ export default function App() {
   if (!auth.isAuthenticated) return <LoginScreen />;
 
   return (
-    <div style={{ display: "flex", height: "100%" }}>
+    <div className="rx-app-shell" style={{ display: "flex", height: "100%" }}>
       <Sidebar screen={screen} setScreen={setNav} dark={dark} setDark={setDark} />
-      <main style={{ flex: 1, minWidth: 0, height: "100%", overflow: "hidden" }}>
+      <main className="rx-app-main" style={{ flex: 1, minWidth: 0, height: "100%", overflow: "hidden" }}>
         {screen === "board" && (
           <JobBoard
             tab={tab}
@@ -181,6 +181,27 @@ export default function App() {
       {peekJob && (
         <JobDetailPeek job={peekJob} onClose={() => setPeekJob(null)} onGenerate={onGenerate} onAssign={onAssign} />
       )}
+
+      {/* Mobile bottom tab bar — hidden on desktop via CSS */}
+      <nav className="rx-bottom-nav">
+        {NAV.map((item) => {
+          const active = screen === item.id || (item.id === "props" && screen === "workspace");
+          return (
+            <button
+              key={item.id}
+              className={`rx-bottom-nav-btn${active ? " active" : ""}`}
+              onClick={() => setNav(item.id)}
+              style={{ position: "relative" }}
+            >
+              <item.icon size={20} />
+              <span>{item.label}</span>
+              {item.badge ? (
+                <span className="rx-bottom-nav-badge">{item.badge}</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }

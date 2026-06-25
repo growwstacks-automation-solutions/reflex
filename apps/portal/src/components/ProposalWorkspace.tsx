@@ -464,7 +464,7 @@ export function ProposalWorkspace({ job, initialStatus, onBack, onMarkSubmitted,
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 28px", borderBottom: "1px solid var(--border)" }}>
+      <div className="rx-workspace-topbar" style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 28px", borderBottom: "1px solid var(--border)" }}>
         <button onClick={onBack} style={{
           display: "inline-flex", alignItems: "center", gap: 7, padding: "7px 12px 7px 9px",
           borderRadius: "var(--radius-button)", border: "1px solid var(--border)", cursor: "pointer",
@@ -476,12 +476,12 @@ export function ProposalWorkspace({ job, initialStatus, onBack, onMarkSubmitted,
         </div>
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "0.86fr 1.14fr", gap: 16, padding: "18px 28px 0" }}>
-        <JobContextCard job={job} />
+      <div className="rx-workspace-grid" style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "0.86fr 1.14fr", gap: 16, padding: "18px 28px 0", overflowY: "auto" }}>
+        <div className="rx-job-context-card"><JobContextCard job={job} /></div>
         <ProposalCard job={job} status={status} setStatus={setStatus} onAskRegenerate={() => setConfirm(true)} />
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 28px", borderTop: "1px solid var(--border)", marginTop: 16, background: "var(--surface)" }}>
+      <div className="rx-workspace-footer" style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 28px", borderTop: "1px solid var(--border)", marginTop: 16, background: "var(--surface)" }}>
         <span style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.45, maxWidth: 640 }}>
           Reflex doesn't submit for you — copy what you need, or use the extension to auto-fill, then submit on Upwork and mark it here.
         </span>

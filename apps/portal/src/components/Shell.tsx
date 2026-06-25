@@ -30,6 +30,7 @@ export function Sidebar({
   const person = { name: user?.full_name || "Rep", bg: "var(--accent)", fg: "#fff" };
   return (
     <aside
+      className="rx-sidebar"
       style={{
         width: 230,
         flex: "none",
@@ -58,7 +59,7 @@ export function Sidebar({
         >
           <span style={{ width: 12, height: 12, borderRadius: 3, background: "var(--surface)", transform: "rotate(45deg)" }}></span>
         </span>
-        <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.02em" }}>Reflex</span>
+        <span className="rx-brand-name" style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-0.02em" }}>Reflex</span>
       </div>
 
       {/* Nav */}
@@ -68,6 +69,7 @@ export function Sidebar({
           return (
             <button
               key={item.id}
+              className="rx-nav-btn"
               onClick={() => setScreen(item.id)}
               style={{
                 display: "flex",
@@ -94,7 +96,7 @@ export function Sidebar({
               }}
             >
               <item.icon size={18} />
-              <span style={{ flex: 1 }}>{item.label}</span>
+              <span className="rx-nav-label" style={{ flex: 1 }}>{item.label}</span>
               {item.badge ? (
                 <span
                   style={{
@@ -123,6 +125,7 @@ export function Sidebar({
 
       {/* Dark mode toggle */}
       <button
+        className="rx-dark-btn"
         onClick={() => setDark((d) => !d)}
         style={{
           display: "flex",
@@ -144,11 +147,12 @@ export function Sidebar({
         onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
       >
         {dark ? <RXIcons.sun size={18} /> : <RXIcons.moon size={18} />}
-        <span>{dark ? "Light mode" : "Dark mode"}</span>
+        <span className="rx-dark-label">{dark ? "Light mode" : "Dark mode"}</span>
       </button>
 
       {/* User + sign out */}
       <div
+        className="rx-user-row"
         style={{
           display: "flex",
           alignItems: "center",
@@ -160,7 +164,7 @@ export function Sidebar({
         }}
       >
         <Avatar person={person} size={32} />
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="rx-user-info" style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {user?.full_name || "—"}
           </div>
@@ -170,6 +174,7 @@ export function Sidebar({
           </div>
         </div>
         <button
+          className="rx-signout-btn"
           onClick={signOut}
           title="Sign out"
           style={{
@@ -209,6 +214,7 @@ export function PageHeader({
 }): JSX.Element {
   return (
     <header
+      className="rx-page-header"
       style={{
         display: "flex",
         alignItems: "flex-start",

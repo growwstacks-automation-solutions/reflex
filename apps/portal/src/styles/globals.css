@@ -9,6 +9,7 @@
 /* v4 energetic theme — overrides the base tokens in place (indigo, cool canvas,
    loud status, dimensional shadows). Must come after the base token imports. */
 @import "./theme-v4.css";
+@import "./mobile.css";
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }

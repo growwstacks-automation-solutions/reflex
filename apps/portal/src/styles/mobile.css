@@ -1,0 +1,273 @@
+/* Reflex portal — mobile & tablet responsive rules.
+   Breakpoints:
+     ≤768px  → mobile  (bottom tab bar, single column, card rows)
+     ≤1024px → tablet  (icon-only sidebar, tighter padding)
+*/
+
+/* ─── Tablet: icon-only sidebar ─────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .rx-sidebar {
+    width: 64px !important;
+    padding: 14px 8px !important;
+  }
+  .rx-sidebar .rx-nav-label,
+  .rx-sidebar .rx-brand-name,
+  .rx-sidebar .rx-user-info,
+  .rx-sidebar .rx-dark-label {
+    display: none !important;
+  }
+  .rx-sidebar .rx-nav-btn {
+    padding: 10px !important;
+    justify-content: center !important;
+    gap: 0 !important;
+  }
+  .rx-sidebar .rx-dark-btn {
+    padding: 10px !important;
+    justify-content: center !important;
+    gap: 0 !important;
+  }
+  .rx-sidebar .rx-user-row {
+    padding: 8px !important;
+    justify-content: center !important;
+  }
+  .rx-sidebar .rx-signout-btn {
+    display: none !important;
+  }
+  .rx-page-header {
+    padding: 16px 16px 14px !important;
+    gap: 10px !important;
+    flex-wrap: wrap !important;
+  }
+  .rx-page-content {
+    padding: 14px 16px 32px !important;
+  }
+  /* Conversations sidebar narrower on tablet */
+  .rx-convo-grid {
+    grid-template-columns: 240px 1fr !important;
+  }
+  /* Proposal workspace two-column → single column */
+  .rx-workspace-grid {
+    grid-template-columns: 1fr !important;
+    padding: 14px 16px 0 !important;
+    gap: 12px !important;
+  }
+  /* Job detail peek panel */
+  .rx-peek-panel {
+    width: min(680px, 80vw) !important;
+  }
+}
+
+/* ─── Mobile: bottom tab bar replaces sidebar ───────────────────────── */
+@media (max-width: 768px) {
+  /* Hide desktop sidebar, show bottom bar */
+  .rx-sidebar {
+    display: none !important;
+  }
+  .rx-bottom-nav {
+    display: flex !important;
+  }
+  /* Main layout: shrink height to account for bottom bar */
+  .rx-app-shell {
+    flex-direction: column !important;
+    height: 100% !important;
+  }
+  .rx-app-main {
+    flex: 1 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+  /* Page header: tighter, wraps */
+  .rx-page-header {
+    padding: 14px 16px 12px !important;
+    gap: 8px !important;
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+  }
+  .rx-page-header h1 {
+    font-size: 18px !important;
+  }
+  /* Extra bottom padding so content clears the fixed 56px tab bar */
+  .rx-page-content {
+    padding: 12px 12px 72px !important;
+  }
+  .rx-workspace-grid {
+    padding-bottom: 72px !important;
+  }
+
+  /* KPI strip: 2×2 */
+  .rx-kpi-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+    margin-bottom: 12px !important;
+  }
+
+  /* Job board table → mobile card list */
+  .rx-table-header {
+    display: none !important;
+  }
+  .rx-job-row {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    padding: 12px 14px !important;
+    border-bottom: 1px solid var(--border) !important;
+    background: var(--surface) !important;
+  }
+  .rx-job-row:hover {
+    background: var(--indigo-50) !important;
+  }
+  .rx-job-row .rx-row-title {
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    line-height: 1.3 !important;
+    color: var(--text-primary) !important;
+    white-space: normal !important;
+  }
+  .rx-job-row .rx-row-meta {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    flex-wrap: wrap !important;
+  }
+  .rx-job-row .rx-row-action {
+    margin-top: 4px !important;
+  }
+  /* Hide budget/connects/posted cols on mobile (shown in meta row instead) */
+  .rx-col-budget,
+  .rx-col-connects,
+  .rx-col-posted {
+    display: none !important;
+  }
+
+  /* Skeleton rows */
+  .rx-skeleton-row {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    padding: 12px 14px !important;
+  }
+
+  /* Proposal workspace: single column, no horizontal padding waste */
+  .rx-workspace-grid {
+    grid-template-columns: 1fr !important;
+    padding: 10px 12px 0 !important;
+    gap: 10px !important;
+  }
+  /* Hide job context card on mobile (or make it collapsible) */
+  .rx-job-context-card {
+    max-height: 220px !important;
+    overflow: hidden !important;
+  }
+
+  /* Peek panel: full screen on mobile */
+  .rx-peek-panel {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    border-radius: 0 !important;
+  }
+
+  /* Workspace topbar & footer: tighter padding */
+  .rx-workspace-topbar {
+    padding: 12px 14px !important;
+  }
+  .rx-workspace-footer {
+    padding: 10px 14px !important;
+    margin-top: 8px !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .rx-workspace-footer span {
+    font-size: 11.5px !important;
+  }
+
+  /* Export bar buttons: wrap */
+  .rx-export-bar {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  /* Conversations: stack list above thread on mobile */
+  .rx-convo-grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 220px 1fr !important;
+  }
+
+  /* Reporting taxonomy 4-col → 2-col on mobile */
+  .rx-reporting-taxonomy {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 14px !important;
+  }
+
+  /* Filter bar: allow wrapping */
+  .rx-filter-bar {
+    gap: 6px !important;
+    padding: 8px !important;
+  }
+
+  /* Bell / header right: hide sync text on small screens */
+  .rx-sync-text {
+    display: none !important;
+  }
+}
+
+/* ─── Mobile-only elements (hidden on desktop) ──────────────────────── */
+.rx-mobile-only {
+  display: none;
+}
+@media (max-width: 768px) {
+  .rx-mobile-only {
+    display: inline !important;
+  }
+}
+
+/* ─── Bottom nav bar (hidden on desktop, shown on mobile) ───────────── */
+.rx-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 50;
+  align-items: stretch;
+}
+.rx-bottom-nav-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  font-family: var(--font-ui);
+  padding: 4px 0 6px;
+  border-top: 2px solid transparent;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.rx-bottom-nav-btn.active {
+  color: var(--accent);
+  border-top-color: var(--accent);
+}
+.rx-bottom-nav-badge {
+  position: absolute;
+  top: 6px;
+  right: calc(50% - 18px);
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}

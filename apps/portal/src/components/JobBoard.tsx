@@ -144,7 +144,7 @@ function TableHeader({
 }): JSX.Element {
   const shared = { sort, dir, onSort } as const;
   return (
-    <div style={{
+    <div className="rx-table-header" style={{
       display: "grid",
       gridTemplateColumns: `${COL.status} 1fr ${COL.budget} ${COL.connects} ${COL.posted} ${COL.action}`,
       height: 38,
@@ -245,6 +245,7 @@ export function JobRow({
   return (
     <div
       role="row"
+      className="rx-job-row"
       onClick={() => onOpen(job)}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -321,11 +322,14 @@ export function JobRow({
           {job.client.payment && job.client.payment !== "—" && (
             <PaymentTag verified={job.client.payment === "Verified"} />
           )}
+          {/* Mobile-only: budget + posted inline since those columns are hidden */}
+          {job.budget && <span className="rx-mobile-only" style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 700, color: "var(--text-primary)" }}>{job.budget}</span>}
+          <span className="rx-mobile-only" style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--text-tertiary)" }}>{job.postedAgo}</span>
         </div>
       </div>
 
       {/* ── Col 3: Budget ── */}
-      <div style={{ ...cellBase, justifyContent: "flex-end" }}>
+      <div className="rx-col-budget" style={{ ...cellBase, justifyContent: "flex-end" }}>
         <span style={{
           fontSize: 13, fontWeight: 700, color: "var(--text-primary)",
           fontFamily: "var(--font-mono)", textAlign: "right", whiteSpace: "nowrap",
@@ -333,7 +337,7 @@ export function JobRow({
       </div>
 
       {/* ── Col 4: Connects ── */}
-      <div style={{ ...cellBase, justifyContent: "flex-end" }}>
+      <div className="rx-col-connects" style={{ ...cellBase, justifyContent: "flex-end" }}>
         <span style={{
           fontSize: 13, fontWeight: 600, color: job.connects > 0 ? "var(--text-primary)" : "var(--text-tertiary)",
           fontFamily: "var(--font-mono)", textAlign: "right",
@@ -343,7 +347,7 @@ export function JobRow({
       </div>
 
       {/* ── Col 5: Posted ── */}
-      <div style={{ ...cellBase, justifyContent: "flex-end" }}>
+      <div className="rx-col-posted" style={{ ...cellBase, justifyContent: "flex-end" }}>
         <span style={{
           fontSize: 12, color: "var(--text-tertiary)", whiteSpace: "nowrap", textAlign: "right",
           fontFamily: "var(--font-mono)",
@@ -351,7 +355,7 @@ export function JobRow({
       </div>
 
       {/* ── Col 6: Action ── */}
-      <div style={{ ...cellBase, borderRight: "none", justifyContent: "flex-end" }}>
+      <div className="rx-row-action" style={{ ...cellBase, borderRight: "none", justifyContent: "flex-end" }}>
         <RowAction
           job={job}
           onGenerate={() => onGenerate(job)}
@@ -420,7 +424,7 @@ function SkeletonRow(): JSX.Element {
     }} />
   );
   return (
-    <div style={{
+    <div className="rx-skeleton-row" style={{
       display: "grid",
       gridTemplateColumns: `${COL.status} 1fr ${COL.budget} ${COL.connects} ${COL.posted} ${COL.action}`,
       borderBottom: "1px solid var(--border)", minHeight: 72,
@@ -482,7 +486,7 @@ function KpiStrip({ jobs }: { jobs: Job[] }): JSX.Element {
     { label: "Submitted",    value: count(j => j.actionState === "submitted"),                color: "var(--info-text)",      fill: "var(--info-fill)" },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
+    <div className="rx-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
       {kpis.map((k, i) => (
         <div key={i} style={{
           background: k.fill, border: "1px solid var(--border)",
@@ -574,11 +578,11 @@ export function JobBoard({
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <PageHeader title="Job board" subtitle="Read the job, decide if it's worth it, act in one click." right={headerRight} />
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
+      <div className="rx-page-content" style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
         <KpiStrip jobs={jobs} />
 
         {/* ── Filter bar ── */}
-        <div style={{
+        <div className="rx-filter-bar" style={{
           display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap",
           marginBottom: 14, padding: "8px 10px",
           background: "var(--surface)", border: "1px solid var(--border)",

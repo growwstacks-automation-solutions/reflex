@@ -32,7 +32,7 @@ export function Conversations({
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <PageHeader title="Conversations" subtitle="Every client thread, with what matters surfaced." right={headerRight} />
-      <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "320px 1fr" }}>
+      <div className="rx-convo-grid" style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "320px 1fr" }}>
         <div style={{ borderRight: "1px solid var(--border)", overflowY: "auto", background: "var(--surface)" }}>
           {convos.map((c) => {
             const st = CONVO_STATUS[c.status];
@@ -147,8 +147,8 @@ export function Reporting({ headerRight }: { headerRight?: React.ReactNode }): J
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <PageHeader title="Reporting" subtitle="Team output over the last 14 days." right={headerRight} />
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
+      <div className="rx-page-content" style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
+        <div className="rx-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
           {r.kpis.map((k, i) => (
             <Card key={i} style={{ background: "var(--bg-raised)", boxShadow: "none" }} pad="14px 16px">
               <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 6 }}>{k.label}</div>
@@ -189,7 +189,7 @@ export function Reporting({ headerRight }: { headerRight?: React.ReactNode }): J
 
         <Card pad="18px" style={{ marginBottom: 16 }}>
           <Eyebrow style={{ marginBottom: 14 }}>What's coming in</Eyebrow>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 22 }}>
+          <div className="rx-reporting-taxonomy" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 22 }}>
             {r.taxonomy.map((col, i) => {
               const max = Math.max(...col.items.map((it) => it[1]));
               return (
@@ -247,7 +247,7 @@ export function Assets({ headerRight }: { headerRight?: React.ReactNode }): JSX.
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <PageHeader title="Assets" subtitle="Reusable proof to drop into proposals." right={headerRight} />
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
+      <div className="rx-page-content" style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <Eyebrow>Screenshots & samples</Eyebrow>
           <Button size="sm" variant="secondary" icon={<RXIcons.upload size={15} />}>Upload</Button>

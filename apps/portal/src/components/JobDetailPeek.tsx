@@ -91,7 +91,7 @@ export function JobDetailPeek({
       />
 
       {/* Panel */}
-      <div style={panelStyle}>
+      <div className="rx-peek-panel" style={panelStyle}>
 
         {/* ── Top bar ── */}
         <div style={{
