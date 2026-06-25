@@ -1,4 +1,61 @@
 import template from "./reflex-proposal-prompt.template.txt";
+import type { JobData } from "./types";
+
+// The template is split at this marker:
+//   above  -> stable system text (cached: voice, rules, portfolio index, output contract)
+//   below  -> the per-job user message (filled from {{slots}})
+const MARKER = "[DYNAMIC BLOCK]";
+
+export interface AnthropicSystemBlock {
+  type: "text";
+  text: string;
+  cache_control?: { type: "ephemeral" };
+}
+
+export function buildMessages(
+  job: JobData,
+  screeningQuestions: string[],
+  clientName: string | null,
+): { system: AnthropicSystemBlock[]; user: string } {
+  const [cachedRaw, dynamicRaw] = splitTemplate(template);
+
+  // The stable block is marked cacheable. Once the real (large) portfolio index
+  // lands and the prefix crosses Haiku's min cacheable size, repeated calls in a
+  // shift read it at the cheap cache rate instead of full price.
+  const system: AnthropicSystemBlock[] = [
+    { type: "text", text: cachedRaw.trim(), cache_control: { type: "ephemeral" } },
+  ];
+
+  const slots: Record<string, string> = {
+    JOB_TITLE: job.title ?? "",
+    JOB_DESCRIPTION: job.description ?? "",
+    BUDGET: job.budget_text ?? "—",
+    TOOL: job.tool ?? "—",
+    USE_CASE: job.use_case ?? "—",
+    DEPARTMENT: job.department ?? "—",
+    INDUSTRY: job.industry ?? "—",
+    VERDICT: job.verdict ?? "—",
+    JOB_QUALITY: job.quality ?? "—",
+    REASON_FOR_SELECTION: job.reason ?? "—",
+    CLIENT_COUNTRY: job.client_country ?? "—",
+    CLIENT_SPEND: job.client_spend ?? "—",
+    CLIENT_NAME: clientName ?? "",
+    SCREENING_QUESTIONS: screeningQuestions.length
+      ? screeningQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")
+      : "(none)",
+  };
+
+  return { system, user: fill(dynamicRaw, slots).trim() };
+}
+
+function splitTemplate(t: string): [string, string] {
+  const i = t.indexOf(MARKER);
+  if (i === -1) return [t, ""];
+  return [t.slice(0, i), t.slice(i + MARKER.length)];
+}
+
+function fill(t: string, slots: Record<string, string>): string {
+  return t.replace(/\{\{\s*(\w+)\s*\}\}/g, (_m, k: string) => slots[k] ?? "");
 import { PORTFOLIO_INDEX } from "./portfolio";
 import type { JobInput } from "./job";
 

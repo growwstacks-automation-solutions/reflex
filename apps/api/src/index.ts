@@ -1,3 +1,13 @@
+import type { Env, GenerateRequest } from "./types";
+import { STUB_JOB, loadJob } from "./job";
+import { generateProposal } from "./generate";
+import { checkJobs } from "./check";
+
+const CORS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "POST, OPTIONS",
+  "access-control-allow-headers": "content-type, authorization",
+};
 import { generate } from "./generate";
 import { costInr } from "./pricing";
 import { STUB_JOB, applyOverrides, fetchJob, type JobInput, type JobOverrides } from "./job";
@@ -27,6 +37,71 @@ export default {
     if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
 
     const url = new URL(req.url);
+    if (req.method === "POST" && url.pathname === "/generate") {
+      return handleGenerate(req, env);
+    }
+    if (req.method === "POST" && url.pathname === "/jobs/check") {
+      return handleCheck(req, env);
+    }
+    return json({ error: "Not found", routes: ["POST /generate", "POST /jobs/check"] }, 404);
+  },
+};
+
+// CHECK_JOBS — per-card status for the extension strips. Reads the live jobs table.
+async function handleCheck(req: Request, env: Env): Promise<Response> {
+  let body: { jobIds?: unknown };
+  try {
+    body = (await req.json()) as { jobIds?: unknown };
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+  const jobIds = Array.isArray(body.jobIds) ? body.jobIds.map(String).filter(Boolean) : [];
+  if (!jobIds.length) return json({ statuses: {} }, 200);
+
+  try {
+    const statuses = await checkJobs(env, jobIds);
+    return json({ statuses }, 200);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[check] ERROR:", message); // shows the real cause in the wrangler terminal
+    return json({ error: message }, 500);
+  }
+}
+
+async function handleGenerate(req: Request, env: Env): Promise<Response> {
+  let body: GenerateRequest;
+  try {
+    body = (await req.json()) as GenerateRequest;
+  } catch {
+    return json({ error: "Invalid JSON body" }, 400);
+  }
+  if (!body.job_id) return json({ error: "job_id is required" }, 400);
+
+  try {
+    const stub = env.REFLEX_GENERATION_STUB === "true";
+    const job = stub ? STUB_JOB : await loadJob(env, body.job_id);
+    if (!job) return json({ error: `Job not found: ${body.job_id}` }, 404);
+
+    const result = await generateProposal(
+      env,
+      job,
+      body.screening_questions ?? [],
+      body.client_name ?? null,
+      stub,
+    );
+    return json(result, 200);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return json({ error: message }, 500);
+  }
+}
+
+function json(obj: unknown, status: number): Response {
+  return new Response(JSON.stringify(obj, null, 2), {
+    status,
+    headers: { "content-type": "application/json", ...CORS },
+  });
+}
     const route = `${req.method} ${url.pathname}`;
     if (route === "POST /auth/login") return login(req, env);
     if (route === "GET /board") return board(req, env);

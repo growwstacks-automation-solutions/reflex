@@ -1,4 +1,62 @@
 import { neon } from "@neondatabase/serverless";
+import type { Env, JobData } from "./types";
+
+// A realistic stub so the prompt can be tested before Neon is live.
+// Shape matches JobData exactly (the columns from 0000 + 0001).
+export const STUB_JOB: JobData = {
+  upwork_job_id: "STUB-0001",
+  title: "Build a GoHighLevel automation for lead nurture",
+  description:
+    "We're a real-estate team and need a GoHighLevel setup that captures leads from our web forms, runs a multi-step email + SMS nurture sequence, moves leads through pipeline stages automatically, and ties in calendar booking so follow-up never slips. Clear budget, hiring now. Please share a relevant example.",
+  budget_text: "$1.5k–3k",
+  connects: 4,
+  client_country: "United States",
+  client_spend: "$80K+",
+  client_payment_verified: true,
+  experience_level: "Intermediate",
+  skills: ["GoHighLevel", "Marketing Automation", "Lead Generation"],
+  verdict: "relevant",
+  reason: "Strong match: GHL + automation, our core service. Clear budget, client hiring now.",
+  quality: "good",
+  tool: "GoHighLevel",
+  use_case: "Lead nurture",
+  department: "Marketing",
+  industry: "Real estate",
+};
+
+// Load a real job from Neon by Upwork id (or internal uuid), resolving the four
+// taxonomy FKs to their names. Read-only; column names mirror the migrations.
+export async function loadJob(env: Env, jobId: string): Promise<JobData | null> {
+  const sql = neon(env.DATABASE_URL);
+  const rows = (await sql`
+    select
+      j.upwork_job_id,
+      j.title,
+      j.description,
+      j.budget_text,
+      j.connects,
+      j.client_country,
+      j.client_spend,
+      j.client_payment_verified,
+      j.experience_level,
+      j.skills,
+      j.verdict::text          as verdict,
+      j.reason,
+      j.quality,
+      t.name                   as tool,
+      uc.name                  as use_case,
+      d.name                   as department,
+      ind.name                 as industry
+    from jobs j
+    left join tools       t   on t.id   = j.tool_id
+    left join use_cases   uc  on uc.id  = j.use_case_id
+    left join departments d   on d.id   = j.department_id
+    left join industries  ind on ind.id = j.industry_id
+    where j.upwork_job_id = ${jobId} or j.id::text = ${jobId}
+    limit 1
+  `) as JobData[];
+
+  return rows[0] ?? null;
 
 /** Everything the prompt's dynamic block needs about one job. */
 export interface JobInput {

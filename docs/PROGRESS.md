@@ -27,6 +27,10 @@ link. The API Worker (`apps/api`) serves `/auth/login` + `/board` + `/generate` 
 | Area | State |
 |---|---|
 | Design system (Claude Design) | In progress — foundation set, portal + extension prompts handed off |
+| Extension | Phase 0+1 done — anchors doc, full indigo theme (popup too), detail-page strip + job/client capture + AI client-name suggestion (dummy). Backend wiring (Phases 2–5) pending the API |
+| Database schema | Written (`0000_baseline.sql` + `0001_job_fields.sql`) — **not yet applied** |
+| Backend API | Generation Worker rebuilt (`apps/api`, `POST /generate`, stub mode, typechecks + dry-run builds clean). Auth/board/claim not started |
+| Cloudflare Worker (ingestion + AI) | Not started |
 | Extension | DOM integration wired (top-of-card strip, cover/screening/composer fills) + REFLEX_DUMMY actions + v4 indigo theme; detail-page capture + kit-reskin pending |
 | Database schema | **Live on Neon** — baseline applied; seeded 4 users + migrated 570 jobs / 570 assignments / 429 proposals from Airtable |
 | Backend API | **`POST /auth/login` + `GET /board`** live & smoke-tested (JWT via jose, bcrypt via bcryptjs, Path-B board query incl. `quality` + detail-panel fields: description, url, client intel) |
@@ -55,8 +59,11 @@ link. The API Worker (`apps/api`) serves `/auth/login` + `/board` + `/generate` 
 
 - RLS policies described in `docs/SCHEMA.md` but not yet written (needs auth wired first).
 - Embedding dimension hard-coded to 1536; revisit when the embedder is chosen.
-- Extension scaffold still named "Relay"; rename to Reflex across files + icons.
 - Cron home for `release_stale_assignments` not yet chosen (pg_cron vs Worker).
+- Extension image-attach uses placeholder ImageKit URLs (marked TODO) + needs a host
+  permission for the asset host before real attach works.
+- Extension detail-page sub-selectors (client spend/rating/hire-rate) are best-effort
+  text-pattern reads, marked TODO(verify) — confirm on the live site when wiring Phase 4.
 
 ---
 
@@ -163,6 +170,75 @@ link. The API Worker (`apps/api`) serves `/auth/login` + `/board` + `/generate` 
 > - **Verified:** how it was checked (Manish runs builds/migrations himself).
 > - **Next:** the immediate next step.
 > - **Notes:** anything the next session needs to know.
+
+### 2026-06-23 — Extension safety hardening (account-protection audit)
+- **Did:** Audited every Upwork-facing line in the files changed this session. Findings: the
+  only **automatic** activity on an Upwork page is reading the DOM + one `fetch` to the Reflex
+  API (**localhost**, not upwork.com). No `setInterval`/polling, no automated requests to
+  Upwork, no auto-submit/refresh. The image `fetch` (ImageKit) and `window.open`/`.click()`
+  fills run **only on an explicit human click** (the prefill/Generate buttons). Hardened:
+  added a **kill-switch** (`REFLEX_ENABLED` — `false` disables ALL injection instantly) + a
+  written SAFETY CONTRACT at the top of content.js; **removed the Google-Fonts webfont fetch**
+  (was the only automatic 3rd-party request on Upwork pages — now uses the system font stack).
+- **Verified:** `node --check` clean; re-grep confirms auto-network = localhost only, no
+  setInterval, no upwork.com requests.
+- **Context:** two **newly-created** Upwork accounts were blocked; an established account
+  (other member) is unaffected. The extension makes zero requests Upwork can observe during
+  browsing, so it has no mechanism to cause a block — the pattern points to Upwork's
+  new-account / multi-account detection, not the code.
+- **Next:** keep testing on established accounts only; never create fresh accounts to test.
+
+### 2026-06-23 — Live DB = source of truth; CHECK_JOBS wired (DB → card strips)
+- **Did:** Adopted the **live Neon schema** as source of truth (the real `jobs` table is
+  ~60 cols, Airtable/n8n-derived). Retired migration `0001` (the real table already has
+  `reason` + `quality` text). Fixed the Worker to the real columns (`reason`, `quality`,
+  `skills`, `client_payment_verified`, `experience_level`). Resynced SCHEMA.md to the real
+  `jobs` table + recorded the normalized-vs-denormalized rule (claim via `job_assignments`,
+  mirror to `jobs.picked_by_name`). **Built `POST /jobs/check`** (`src/check.ts`): looks up
+  jobs by `upwork_job_id` (== the tile's `data-test-key`), returns per-card status
+  (inReflex/verdict/quality/chips/owner/actioned). **Wired the extension:** `background.js`
+  proxies `CHECK_JOBS` to the Worker; `content.js` injects strips in a "checking…" state then
+  batches all visible tile ids into one call and updates each strip with real DB data
+  (`REFLEX_LIVE` flag, independent of `REFLEX_DUMMY`). Added localhost host_permissions.
+- **Verified:** Worker `npm run typecheck` exit 0; extension `node --check` + manifest JSON ok.
+  NOT run live — needs `DATABASE_URL` in `apps/api/.dev.vars` + the Worker running (Manish).
+- **Next:** run the test loop (Worker up → reload extension → real strips on Upwork). Then
+  auth (so ownership shows "mine"), then ADD_JOB/GENERATE_PROPOSAL wiring.
+- **Notes:** ownership shows "Assigned · <picked_by_name>" / "Available" until auth tells us
+  who the rep is. `quality` is mapped defensively (good/high→good, med→medium, poor/low→poor).
+
+### 2026-06-23 — Rebuilt the generation Worker (apps/api) + migration 0001
+- **Did:** Recreated `apps/api` (Cloudflare Worker) on this checkout — it existed only on the
+  Mac, uncommitted, so `git pull` couldn't bring it. `POST /generate`: loads the job (stub or
+  Neon), builds the prompt from `src/reflex-proposal-prompt.template.txt` (cached system block
+  + per-job user block), calls Haiku 4.5 via the Messages API with `cache_control`, parses JSON
+  defensively, computes ₹ cost from the token split. Schema-faithful — `src/job.ts` reads the
+  real 0000+0001 columns and joins the 4 taxonomy FKs to names. Anthropic-direct (plain fetch),
+  Neon via `@neondatabase/serverless`. Added migration `0001_job_fields.sql`
+  (`reason_for_selection` text + `job_quality` enum + filter index) and mirrored it in SCHEMA.md.
+- **Verified:** `npm install` + `npm run typecheck` clean; `wrangler deploy --dry-run` builds
+  the bundle (226 KiB) clean. NOT run live — needs a real `ANTHROPIC_API_KEY` in `.dev.vars`
+  (Manish). `.dev.vars`/`node_modules` confirmed gitignored.
+- **Next:** Apply `0000` + `0001` to Neon. Put the key in `.dev.vars`, run the stub `curl`,
+  read the cover letter, tune the template. Then auth/board/claim, then flip stub → Neon.
+- **Notes:** Pricing rates in `src/pricing.ts` are TODO(verify). Caching won't discount until
+  the real ~74-item portfolio index makes the cached prefix large enough for Haiku.
+
+### 2026-06-23 — Extension Phase 0 + 1 (housekeeping + detail page)
+- **Did:** **Phase 0** — created `docs/UPWORK-ANCHORS.md` (all 5 page anchors + the 4 verified
+  proposal-page selectors + fill-method notes, single source of truth); finished the indigo
+  re-theme (`popup.css` was still terracotta → indigo; killed two stray terracotta refs +
+  dead tokens in `content.css`; README "terracotta" → "indigo"); marked the placeholder
+  ImageKit URLs with a TODO. **Phase 1** — detail-page work in `content.js`: inject a Reflex
+  strip into `[data-ev-sublocation='jobdetails']` (panel + full page), capture the job +
+  client snapshot on detail-open (spend/rating/hire-rate/location/payment-verified, best-effort
+  text reads), and an AI client-name suggestion from on-page reviews that the rep **confirms**
+  (never auto-inserted). All reactive, all dummy-simulated; new `.rfx-detail` CSS in the v4 tokens.
+- **Verified:** `node --check` clean on content/background/popup JS; no `terra`/hex terracotta
+  left in styles. NOT live-tested on Upwork by Claude — Manish reloads the unpacked extension.
+- **Next:** Phase 2 (real auth → JWT) and Phase 3 (`getJobData` → `CHECK_JOBS`) — both blocked
+  on the backend API. Until then the DOM layer is complete and testable on real Upwork.
+- **Notes:** Reactive-only — no auto-submit, no portfolio popup-driving, no timer harvest.
 
 ### 2026-06-23 — Extension: DOM integration, dummy mode, v4 indigo
 - **Did:** Wired the content script to the real Upwork anchors (`docs/UPWORK-ANCHORS.md`):

@@ -29,10 +29,31 @@ Target: Neon Postgres 17 + `pgvector`.
 `active` (bool — **`false` is the lock-out**), `shift_start` (time), `shift_end` (time, may
 wrap midnight), `last_active_at`, `created_at`.
 
-**`jobs`** — `id`, `upwork_job_id` (unique — idempotency key), `title`, `description`, `url`,
-`budget_text`, `connects` (int), `client_country`, `client_spend`, `posted_at`,
-`verdict` (`job_verdict`), `reason` (one-line), `tool_id`, `use_case_id`, `department_id`,
-`industry_id` (FKs to the taxonomy), `created_at`.
+**`jobs`** — ⚠️ The LIVE table is **richer than `0000_baseline.sql`** — it mirrors the
+Airtable / n8n structure (~60 cols). **The live DB is the source of truth; `0000` is the
+historical baseline.** Key columns the app uses:
+- identity/content: `id`, `upwork_job_id` (unique — idempotency key), `title`, `description`,
+  `url`, `skills` (text[]), `posted_at`, `created_at`, `ingested_at`, `source_modified_at`
+- classification: `verdict` (`job_verdict`), `reason` (the "why this job" line),
+  **`quality`** (TEXT — `good`/`medium`/`poor`, NOT an enum), `tool_id`, `use_case_id`,
+  `department_id`, `industry_id` (FKs to taxonomy)
+- budget/terms: `budget_text`, `connects`, `connect_cost`, `connect_spent`, `contract_type`,
+  `experience_level`, `engagement_weeks`, `hourly_min/max`, `fixed_amount`/`_max`/`fixed_currency`,
+  `hourly_budget_type`, `bid_min/avg/max_rate`, `has_bids`
+- client: `client_country`/`_code`, `client_city`, `client_timezone`, `client_spend`,
+  `client_billing_type`, `client_payment_verified` (bool), `total_hired`, `total_offered`,
+  `total_invited_to_interview`, `total_unanswered_invites`, `invites_sent`, `last_client_activity`
+- DENORMALIZED proposal/assignment (Airtable-style — see note): `picked_by_name`,
+  `submitted_by_name`, `proposal_text`, `proposal_status`, `proposal_submitted_at`,
+  `proposal_link`, `generation_status`, `cache_status`, `token_cost_inr`,
+  `airtable_create_proposal_url`, `chat_url`, `cover_letter_links`, `attachments_count`,
+  `attachments_filenames`
+
+> **Normalized vs denormalized:** `jobs` carries denormalized `proposal_*`/`picked_by_name`
+> fields (what n8n writes), AND the normalized `job_assignments` + `proposals` tables exist.
+> **Decision: ownership is claimed through `job_assignments` + `claim_job()` (race-safe via the
+> partial unique index); the denormalized `jobs` fields mirror it for display/n8n.** Don't
+> assign by writing `jobs.picked_by_name` alone — that loses the one-owner guarantee.
 
 **`job_assignments`** — ownership as history. `id`, `job_id`, `user_id`, `assigned_at`,
 `released_at` (**NULL = currently owned**), `release_reason` (`timeout`|`manual`|`reassigned`).
