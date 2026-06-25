@@ -1,7 +1,7 @@
 :root{
-  --terra-50:#FAECE7; --terra-500:#D85A30; --terra-700:#993C1D;
-  --canvas:#FAF9F6; --surface:#FFFFFF; --surface-2:#F4F2EE; --border:rgba(0,0,0,.10);
-  --text:#1F1D1A; --text-2:#6B6862; --text-3:#9A968E;
+  --indigo:#4F46E5; --indigo-press:#4035C9; --indigo-tint:#EEF0FF;
+  --canvas:#F6F7FB; --surface:#FFFFFF; --surface-2:#EEF0F4; --border:rgba(15,17,23,.10);
+  --text:#14161D; --text-2:#5A5F6E; --text-3:#9499A6;
   --green-t:#0F6E56; --green-b:#E1F5EE; --amber-t:#854F0B; --amber-b:#FAEEDA;
   --sans:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
 }
@@ -9,15 +9,15 @@
 body{width:300px;background:var(--canvas);color:var(--text);padding:16px}
 .screen.hidden{display:none}
 .brandrow{display:flex;align-items:center;gap:9px;margin-bottom:14px}
-.mark{width:26px;height:26px;border-radius:7px;background:var(--terra-500);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
+.mark{width:26px;height:26px;border-radius:7px;background:var(--indigo);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
 .mark.muted{background:var(--text-3)}
 .bname{font-size:15px;font-weight:600}
 .lead{font-size:13px;color:var(--text-2);margin-bottom:12px}
 .field{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:9px;background:var(--surface)}
-.field:focus{outline:2px solid var(--terra-500);outline-offset:1px;border-color:transparent}
+.field:focus{outline:2px solid var(--indigo);outline-offset:1px;border-color:transparent}
 .btn{font-size:13px;font-weight:600;padding:10px;border-radius:8px;cursor:pointer;border:none;width:100%}
-.btn.primary{background:var(--terra-500);color:#fff}
-.btn.primary:hover{background:var(--terra-700)}
+.btn.primary{background:var(--indigo);color:#fff}
+.btn.primary:hover{background:var(--indigo-press)}
 .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
 .btn.full{width:100%}
 .hint{font-size:11px;color:var(--text-3);margin-top:8px;text-align:center}

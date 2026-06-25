@@ -4,14 +4,8 @@
    own CSS can't leak in and ours can't leak out.
    ============================================================ */
 
-#rfx-root, #rfx-launcher, .rfx-tag, .rfx-ctl, .rfx-mega, .rfx-filled {
-  /* ---- tokens ---- */
-  --rfx-terra-50:#FAECE7;
-  --rfx-terra-100:#F5C4B3;
-  --rfx-terra-500:#D85A30;
-  --rfx-terra-700:#993C1D;
-  --rfx-terra-900:#4A1B0C;
-
+#rfx-root, #rfx-launcher, .rfx-tag, .rfx-detail, .rfx-ctl, .rfx-mega, .rfx-filled {
+  /* ---- tokens (v4 indigo — terracotta retired) ---- */
   --rfx-indigo:#4F46E5;
   --rfx-indigo-press:#4035C9;
   --rfx-indigo-tint:#EEF0FF;
@@ -35,14 +29,19 @@
   --rfx-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* hard reset within our scope only */
-#rfx-root, #rfx-root * , #rfx-launcher, #rfx-launcher * {
+/* hard reset within our scope only. margin/padding are applied through :where()
+   so they carry ZERO specificity — they still neutralize the browser's UA
+   defaults, but they never override our own class-based padding/margin (which
+   the old ID-level reset was silently clobbering everywhere). */
+#rfx-root, #rfx-root *, #rfx-launcher, #rfx-launcher * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
   font-family: var(--rfx-sans);
   line-height: 1.4;
   letter-spacing: 0;
+}
+:where(#rfx-root, #rfx-root *, #rfx-launcher, #rfx-launcher *) {
+  margin: 0;
+  padding: 0;
 }
 
 /* ---------- floating launcher ---------- */
@@ -77,16 +76,20 @@
 /* ---------- panel ---------- */
 #rfx-root {
   position: fixed;
-  top: 0; right: 0;
-  width: 372px;
-  height: 100vh;
+  top: 12px; right: 12px;
+  width: 428px;
+  height: auto;
+  max-height: calc(100vh - 24px);
   background: var(--rfx-canvas);
-  box-shadow: -8px 0 30px rgba(0,0,0,0.14);
+  border: 1px solid var(--rfx-border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.18);
   z-index: 2147483601;
   display: flex;
   flex-direction: column;
   color: var(--rfx-text);
-  transform: translateX(100%);
+  transform: translateX(calc(100% + 16px));
   transition: transform .22s cubic-bezier(.22,.61,.36,1);
   font-size: 14px;
 }
@@ -118,18 +121,20 @@
 
 /* surface switcher */
 .rfx-switch {
-  display: flex; gap: 4px; padding: 10px 12px 4px;
+  display: flex; gap: 5px; padding: 10px 12px;
   background: var(--rfx-surface); border-bottom: 1px solid var(--rfx-border);
 }
 .rfx-tab {
-  flex: 1; text-align: center; font-size: 12px; font-weight: 500;
-  padding: 7px 4px; border-radius: 7px; cursor: pointer;
+  flex: 1; text-align: center; font-size: 12.5px; font-weight: 600;
+  padding: 8px 4px; border-radius: 8px; cursor: pointer;
   color: var(--rfx-text-2); border: none; background: transparent;
+  transition: background .12s ease, color .12s ease;
 }
-.rfx-tab.rfx-active { background: var(--rfx-indigo-tint); color: var(--rfx-indigo-press); }
+.rfx-tab:hover { background: var(--rfx-surface-2); color: var(--rfx-text); }
+.rfx-tab.rfx-active { background: var(--rfx-indigo); color: #fff; }
 
 /* body */
-.rfx-body { flex: 1; overflow-y: auto; padding: 14px; }
+.rfx-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px; }
 .rfx-context-note {
   font-size: 11px; color: var(--rfx-text-3); margin-bottom: 10px;
   background: var(--rfx-surface-2); padding: 7px 10px; border-radius: 7px;
@@ -205,7 +210,7 @@
   font-size: 11.5px; padding: 5px 10px; border-radius: 6px; cursor: pointer;
   border: 1px solid var(--rfx-border); background: transparent; color: var(--rfx-text-2);
 }
-.rfx-tone.rfx-active { background: var(--rfx-indigo-tint); color: var(--rfx-indigo-press); border-color: var(--rfx-terra-100); }
+.rfx-tone.rfx-active { background: var(--rfx-indigo-tint); color: var(--rfx-indigo-press); border-color: var(--rfx-indigo); }
 
 /* asset picker */
 .rfx-assets { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 8px 0; }
@@ -222,15 +227,32 @@
 }
 .rfx-asset.sel .rfx-check { display: flex; }
 
-/* message bubbles */
-.rfx-msg { margin-bottom: 8px; max-width: 88%; }
-.rfx-msg .rfx-bubble {
-  padding: 9px 11px; border-radius: 10px; font-size: 13px;
+/* conversation card */
+.rfx-thread { padding: 12px; }
+.rfx-thread-head {
+  font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--rfx-text-3); margin-bottom: 10px;
 }
-.rfx-msg.them .rfx-bubble { background: var(--rfx-surface-2); color: var(--rfx-text); }
+.rfx-thread-actions {
+  display: flex; flex-direction: column; gap: 8px; margin-top: 12px;
+  padding-top: 12px; border-top: 1px solid var(--rfx-border);
+}
+.rfx-thread-actions .rfx-btn { width: 100%; }
+
+/* message bubbles */
+.rfx-msg { margin-bottom: 10px; max-width: 92%; }
+.rfx-msg:last-of-type { margin-bottom: 0; }
+.rfx-msg .rfx-bubble {
+  padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.45;
+}
+.rfx-msg.them .rfx-bubble {
+  background: var(--rfx-surface-2); color: var(--rfx-text);
+  border: 1px solid var(--rfx-border); border-bottom-left-radius: 4px;
+}
 .rfx-msg.me { margin-left: auto; }
-.rfx-msg.me .rfx-bubble { background: var(--rfx-indigo-tint); color: var(--rfx-terra-900); }
-.rfx-msg .rfx-who { font-size: 10.5px; color: var(--rfx-text-3); margin: 0 2px 3px; }
+.rfx-msg.me .rfx-bubble { background: var(--rfx-indigo-tint); color: var(--rfx-indigo-press); border-bottom-right-radius: 4px; }
+.rfx-msg .rfx-who { font-size: 10.5px; font-weight: 600; color: var(--rfx-text-3); margin: 0 2px 4px; }
+.rfx-msg.me .rfx-who { text-align: right; }
 
 /* spinner */
 .rfx-spin {
@@ -250,6 +272,110 @@
   font-family: var(--rfx-sans); font-size: 11px; font-weight: 600;
   padding: 3px 10px; border-radius: 999px; cursor: pointer;
   background: var(--rfx-indigo); color: #fff; border: none; margin-top: 6px;
+}
+
+/* ---------- LIVE listing cards (sidebar Listing tab — mirrors the Upwork page) ----------
+   Rules are #rfx-root-prefixed so their padding/margin out-rank the global
+   `#rfx-root *` reset (which would otherwise zero them). */
+#rfx-root .rfx-job-card {
+  background: #fff; border: 1px solid rgba(0,0,0,0.16);
+  border-radius: 12px; padding: 16px; margin: 0 0 14px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+#rfx-root .rfx-job-card:last-child { margin-bottom: 4px; }
+#rfx-root .rfx-job-card.rfx-dim { opacity: .6; }
+#rfx-root .rfx-job-title {
+  font-size: 14px; font-weight: 600; color: var(--rfx-text); line-height: 1.4;
+  margin: 0 0 12px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+#rfx-root .rfx-job-strip { display: flex; flex-direction: column; gap: 10px; }
+#rfx-root .rfx-jc-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+#rfx-root .rfx-jc-chips {
+  font-size: 12px; font-weight: 500; color: var(--rfx-text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#rfx-root .rfx-jc-foot { display: flex; align-items: center; gap: 8px; }
+#rfx-root .rfx-jc-spacer { flex: 1 1 auto; min-width: 6px; }
+#rfx-root .rfx-jc-line { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+#rfx-root .rfx-jc-note { font-size: 12.5px; font-weight: 500; color: var(--rfx-text-3); }
+
+/* Job tab — open job's type meta, client snapshot + description */
+#rfx-root .rfx-jc-stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+#rfx-root .rfx-detail-stat.client { background: var(--rfx-indigo-tint); color: var(--rfx-indigo-press); }
+
+/* ---------- Proposal tab — sectioned layout ---------- */
+#rfx-root .rfx-prop-job {
+  background: var(--rfx-indigo-tint); border: 1px solid var(--rfx-indigo);
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 12px;
+}
+#rfx-root .rfx-prop-job-cap {
+  font-size: 10.5px; font-weight: 700; color: var(--rfx-indigo-press);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+#rfx-root .rfx-prop-job-title { font-size: 13.5px; font-weight: 600; color: var(--rfx-text); margin-top: 3px; }
+#rfx-root .rfx-prop-sec {
+  background: #fff; border: 1px solid rgba(0,0,0,0.12); border-radius: 12px;
+  padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+#rfx-root .rfx-prop-sec .rfx-section-label { margin-top: 0; }
+#rfx-root .rfx-qtext { font-size: 12.5px; color: var(--rfx-text-2); line-height: 1.45; }
+#rfx-root .rfx-hint { font-size: 12px; color: var(--rfx-text-3); margin-bottom: 8px; line-height: 1.45; }
+#rfx-root .rfx-loom-row { display: flex; align-items: center; gap: 8px; }
+#rfx-root .rfx-loom-link {
+  flex: 1 1 auto; min-width: 0;
+  font-family: var(--rfx-mono); font-size: 11.5px; color: var(--rfx-text-2);
+  background: var(--rfx-surface-2); border: 1px solid var(--rfx-border); border-radius: 7px;
+  padding: 7px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#rfx-root .rfx-loom-row .rfx-btn { flex: none; }
+#rfx-root .rfx-dl { font-size: 13px; }
+
+/* Proposal generation — waiting state */
+#rfx-root .rfx-gen-wait {
+  display: flex; align-items: center; gap: 13px;
+  background: #fff; border: 1px solid rgba(0,0,0,0.12); border-radius: 12px;
+  padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+#rfx-root .rfx-gen-wait-t { display: flex; flex-direction: column; gap: 3px; }
+#rfx-root .rfx-gen-wait-t b { font-size: 13.5px; color: var(--rfx-text); }
+#rfx-root .rfx-gen-wait-t span { font-size: 12px; color: var(--rfx-text-3); line-height: 1.45; }
+#rfx-root .rfx-spin.big { width: 22px; height: 22px; border-width: 3px; flex: none; }
+
+/* Proposal generation — error + portfolio recommendations */
+#rfx-root .rfx-gen-err {
+  font-size: 12.5px; line-height: 1.45; color: var(--rfx-red-t);
+  background: var(--rfx-red-b); border: 1px solid var(--rfx-red-t);
+  border-radius: 10px; padding: 12px 14px;
+}
+#rfx-root .rfx-rec {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 0; border-top: 1px solid var(--rfx-border);
+}
+#rfx-root .rfx-rec:first-of-type { border-top: none; }
+#rfx-root .rfx-rec b { font-size: 12.5px; color: var(--rfx-text); }
+#rfx-root .rfx-rec span { font-size: 12px; color: var(--rfx-text-2); line-height: 1.4; }
+#rfx-root .rfx-rec em { font-size: 11px; color: var(--rfx-text-3); font-style: normal; }
+#rfx-root .rfx-context-note .rfx-cost { color: var(--rfx-indigo-press); }
+#rfx-root .rfx-jobdesc {
+  margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--rfx-border);
+  font-size: 12px; line-height: 1.55; color: var(--rfx-text-2);
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* card action buttons — make Generate / Add unmistakable */
+#rfx-root .rfx-job-card .rfx-tag-gen,
+#rfx-root .rfx-job-card .rfx-tag-add {
+  font-family: var(--rfx-sans); font-size: 12.5px; font-weight: 600;
+  padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+  background: var(--rfx-indigo); color: #fff; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 6px;
+  box-shadow: 0 2px 6px rgba(79,70,229,0.30);
+}
+#rfx-root .rfx-job-card .rfx-tag-gen:hover,
+#rfx-root .rfx-job-card .rfx-tag-add:hover { background: var(--rfx-indigo-press); }
+#rfx-root .rfx-job-card .rfx-tag-gen.quiet {
+  background: var(--rfx-green-b); color: var(--rfx-green-t); box-shadow: none;
 }
 
 /* ---------- injected Reflex strip (clean, scannable bar at the TOP of each job card) ---------- */
@@ -384,3 +510,35 @@
   font-size: 11.5px; font-weight: 600; color: var(--rfx-indigo); margin: 6px 0;
 }
 .rfx-filled .rfx-tag-mark { background: var(--rfx-indigo); width: 13px; height: 13px; }
+
+/* ---------- injected job-detail strip (top of the [data-ev-sublocation='jobdetails'] region) ---------- */
+.rfx-detail {
+  all: revert; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 7px;
+  margin: 0 0 14px; padding: 10px 12px;
+  font-family: var(--rfx-sans);
+  background: var(--rfx-surface); border: 1px solid var(--rfx-border);
+  border-left: 3px solid var(--rfx-indigo); border-radius: 10px;
+  line-height: 1.3;
+}
+.rfx-detail * { box-sizing: border-box; }
+.rfx-detail.rfx-dim { opacity: .62; }
+.rfx-detail-row { display: flex; align-items: center; gap: 8px; }
+.rfx-detail-client {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 12px; color: var(--rfx-text-2);
+}
+.rfx-detail-cap { font-size: 11px; font-weight: 700; color: var(--rfx-indigo); }
+.rfx-detail-stat {
+  font-size: 11.5px; color: var(--rfx-text-2);
+  background: var(--rfx-surface-2); padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+}
+.rfx-detail-name { font-size: 12px; color: var(--rfx-text-2); }
+.rfx-detail-name b { color: var(--rfx-text); font-weight: 700; }
+.rfx-detail-usename {
+  font-family: var(--rfx-sans); font-size: 11.5px; font-weight: 600;
+  padding: 3px 9px; border-radius: 6px; cursor: pointer;
+  background: var(--rfx-indigo-tint); color: var(--rfx-indigo-press); border: none;
+}
+.rfx-detail-usename:hover { background: var(--rfx-indigo); color: #fff; }
+.rfx-detail-named { font-size: 11.5px; font-weight: 600; color: var(--rfx-green-t); }
