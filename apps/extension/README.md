@@ -25,7 +25,7 @@ Click the Reflex icon in the toolbar. You'll see the **sign-in** screen. Click *
 
 ### On Upwork (the main experience)
 1. Go to any page on **upwork.com** (a job search page is best).
-2. Look at the **bottom-right corner** — there's a round terracotta **R** button. That's the launcher. The little amber dot means a job on this page isn't in Reflex yet.
+2. Look at the **bottom-right corner** — there's a round indigo **R** button. That's the launcher. The little amber dot means a job on this page isn't in Reflex yet.
 3. Click it. The **panel slides in from the right.**
 4. At the top of the panel are four tabs — **Listing · Job · Proposal · Messages.** Click through them:
 

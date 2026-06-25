@@ -23,5 +23,6 @@ out/
 next-env.d.ts
 *.tsbuildinfo
 
-#API Creds
+#API Creds — both are gitignored: they have held real credentials.
 apps/api/.dev.vars
+apps/api/.dev.vars.example

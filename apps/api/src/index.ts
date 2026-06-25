@@ -4,6 +4,7 @@ import { STUB_JOB, applyOverrides, fetchJob, type JobInput, type JobOverrides } 
 import { CORS, json } from "./http";
 import { login } from "./auth";
 import { board } from "./board";
+import { checkJobs } from "./check";
 
 export interface Env {
   // Secrets (NOT in wrangler.toml): .dev.vars locally, `wrangler secret put` in prod.
@@ -31,6 +32,7 @@ export default {
     if (route === "POST /auth/login") return login(req, env);
     if (route === "GET /board") return board(req, env);
     if (route === "POST /generate") return generateHandler(req, env);
+    if (route === "POST /jobs/check") return checkJobs(req, env);
     return json({ error: "Not found." }, 404);
   },
 };
@@ -61,7 +63,7 @@ async function generateHandler(req: Request, env: Env): Promise<Response> {
 
   const stub = env.REFLEX_GENERATION_STUB === "true";
   const model = env.ANTHROPIC_MODEL || "claude-haiku-4-5";
-  const usdToInr = parseFloat(env.USD_TO_INR || "86") || 86;
+  const usdToInr = Number.parseFloat(env.USD_TO_INR || "86") || 86;
 
   try {
     let job: JobInput;

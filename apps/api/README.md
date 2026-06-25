@@ -1,77 +1,44 @@
-# Reflex API — proposal generation (Cloudflare Worker)
+# Reflex API — generation Worker
 
-The AI plane. `POST /generate` turns one Upwork job into a ready-to-edit proposal via Claude
-(Haiku 4.5) with prompt caching, and returns the rupee cost. The Anthropic key lives **only**
-here — the extension and portal never see it.
+Cloudflare Worker that turns a job into a proposal. One route: **`POST /generate`**.
 
-## Endpoint
+It loads the job (from Neon, or a built-in stub), builds the prompt from
+`src/reflex-proposal-prompt.template.txt` (stable block cached, per-job block filled),
+calls Claude Haiku 4.5, parses the JSON, computes the ₹ cost, and returns it. The extension
+and portal call this; it holds the Anthropic key + Neon connection (the browser never does).
 
-`POST /generate`
-
-```jsonc
-// request
-{
-  "job_id": "string",                  // required — Upwork job id (idempotency key) or internal uuid
-  "screening_questions": ["..."],      // optional — captured from the job page (not stored in the DB)
-  "client_name_hint": "Jacob",         // optional — AI-suggested first name; used only if present, never invented
-  "budget": "...", "type": "...", "experience": "...", "duration": "...",
-  "skills": "...", "client_context": "..."   // optional page-captured overrides
-}
-```
-
-```jsonc
-// response
-{
-  "cover_letter": "string",
-  "screening_answers": [{ "question": "...", "answer": "..." }],
-  "portfolio_recommendations": [{ "title": "...", "page": 1, "position": 1, "why": "..." }],
-  "client_name_used": "string | null",
-  "cost_inr": 0.42,
-  "tokens": 1234,
-  "usage": { "input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0 },
-  "model": "claude-haiku-4-5",
-  "stub": true
-}
-```
-
-## Modes
-
-- **Stub** (`REFLEX_GENERATION_STUB="true"`, default): ignores the DB, uses a hardcoded sample
-  job. Proves the Claude call + prompt + cost math before Neon exists.
-- **Real** (`"false"`): looks the job up in Neon by `upwork_job_id` / `id`. Needs `DATABASE_URL`.
-
-## The prompt
-
-`src/reflex-proposal-prompt.template.txt` is the editable prompt — change wording there, no code
-changes. The code splits it at the `[DYNAMIC BLOCK]` marker: the cached block (instructions +
-portfolio index) is sent first with `cache_control`, the per-job block fills the `{{slots}}` and
-is sent after the breakpoint. Caching only discounts once the cached block exceeds ~4096 tokens
-on Haiku 4.5 (i.e. once the real 74-item portfolio index replaces the sample) — until then the
-cost is correct, just with no cache savings.
-
-## Secrets
-
-Never in `wrangler.toml`. Local: `.dev.vars` (gitignored — copy from `.dev.vars.example`).
-Prod: `wrangler secret put ANTHROPIC_API_KEY` and `wrangler secret put DATABASE_URL`.
-
-## Run / test / deploy
+## Run locally
 
 ```bash
 cd apps/api
 npm install
+cp .dev.vars.example .dev.vars      # then put your real ANTHROPIC_API_KEY in .dev.vars
 npm run typecheck
-npm run dev                 # http://localhost:8787
-
-# smoke test (stub mode — needs a real key in .dev.vars)
-curl -sX POST http://localhost:8787/generate \
-  -H 'content-type: application/json' \
-  -d '{"job_id":"STUB-0001"}' | jq
-
-npm run deploy              # after `wrangler secret put ...`
+npm run dev                          # wrangler dev → http://localhost:8787
 ```
 
-## Cost
+Test it (a POST — a browser GET to `/` correctly 404s):
 
-`USD_TO_INR` ([vars] in `wrangler.toml`) × the token-usage breakdown × per-MTok rates in
-`src/pricing.ts` (Haiku 4.5: $1 in / $5 out; cache write 1.25×, cache read 0.1×). Cached
-generations visibly cost less — the `usage` block shows the fresh-vs-cached split.
+```bash
+curl -sX POST http://localhost:8787/generate \
+  -H 'content-type: application/json' \
+  -d '{"job_id":"STUB-0001","screening_questions":["Have you built lead-nurture automations in GHL?"]}'
+```
+
+Expect JSON: `cover_letter`, `screening_answers`, up to 4 `portfolio_recommendations`,
+`client_name_used`, a non-zero `cost_inr`, and `usage`.
+
+## Modes & secrets
+
+- `REFLEX_GENERATION_STUB` (wrangler.toml) = `"true"` uses the stub job (no DB). Flip to
+  `"false"` once `0000_baseline.sql` + `0001_job_fields.sql` are applied to Neon.
+- Secrets live in `.dev.vars` locally (gitignored) and `wrangler secret put` in production —
+  never in code, never committed.
+
+## Notes
+
+- Schema-faithful: `src/job.ts` reads the real columns from migrations 0000 + 0001 and
+  resolves the four taxonomy FKs to names.
+- Prompt caching is wired (`cache_control` on the system block) but won't discount until the
+  real ~74-item portfolio index makes the cached prefix large enough for Haiku.
+- Pricing rates in `src/pricing.ts` are marked TODO(verify) — confirm before trusting ₹ in prod.

@@ -3,16 +3,14 @@ main = "src/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
-# Non-secret config. Secrets (ANTHROPIC_API_KEY, DATABASE_URL) are NEVER here —
+# Non-secret config. Secrets (ANTHROPIC_API_KEY, DATABASE_URL, JWT_SECRET) are NEVER here —
 # local: apps/api/.dev.vars (gitignored)  |  prod: `wrangler secret put NAME`.
 [vars]
-ANTHROPIC_MODEL = "claude-haiku-4-5"
-USD_TO_INR = "86"
-# Stub mode proves the Claude call + prompt with no DB. Flip to "false" once
-# 0000_baseline.sql is applied and jobs are being ingested.
-REFLEX_GENERATION_STUB = "true"
+ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+USD_TO_INR = "84"
+REFLEX_GENERATION_STUB = "false"  # false = load the REAL job from Neon by job_id. true = stub job (no DB).
 
-# Bundle the editable prompt as a text module so `import t from "./*.txt"` works.
+# Import the prompt template (.txt) as a string at build time.
 [[rules]]
 type = "Text"
 globs = ["**/*.txt"]
