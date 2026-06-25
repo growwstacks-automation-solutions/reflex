@@ -13,6 +13,9 @@ export interface JobInput {
   /** AI-suggested client first name (confirmable, never fabricated). Empty = none. */
   client_name_hint?: string;
   screening_questions: string[];
+  /** Work-sample links attached to this job (NOT sent to the model — returned to the UI). */
+  looms?: string[];
+  image_links?: string[];
 }
 
 /** Optional page-captured fields the caller (extension) may pass to enrich a job. */
@@ -78,7 +81,7 @@ export async function fetchJob(
 ): Promise<JobInput | null> {
   const sql = neon(databaseUrl);
   const rows = (await sql`
-    select title, description, budget_text, client_country, client_spend
+    select title, description, budget_text, client_country, client_spend, looms, image_links
     from jobs
     where upwork_job_id = ${jobId} or id::text = ${jobId}
     limit 1
@@ -90,12 +93,18 @@ export async function fetchJob(
   const spend = (r.client_spend as string) ?? "";
   const clientContext = [country, spend].filter(Boolean).join(" · ");
 
+  // Postgres text[] comes back as a JS array; coerce nullish to [] and drop empty entries.
+  const toLinks = (v: unknown): string[] =>
+    Array.isArray(v) ? (v as unknown[]).map(String).map((s) => s.trim()).filter(Boolean) : [];
+
   const base: JobInput = {
     title: (r.title as string) ?? "",
     description: (r.description as string) ?? "",
     budget: (r.budget_text as string) ?? undefined,
     client_context: clientContext || undefined,
     screening_questions: [],
+    looms: toLinks(r.looms),
+    image_links: toLinks(r.image_links),
   };
   return applyOverrides(base, overrides);
 }

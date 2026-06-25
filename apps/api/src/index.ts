@@ -89,7 +89,18 @@ async function generateHandler(req: Request, env: Env): Promise<Response> {
       usage.cache_creation_input_tokens +
       usage.cache_read_input_tokens;
 
-    return json({ ...proposal, cost_inr, tokens, usage, model, stub });
+    return json({
+      ...proposal,
+      // Work-sample links for this job (from the jobs.looms / jobs.image_links columns).
+      // Not part of the generated text — the UI uses them to populate the Work Samples picker.
+      looms: job.looms ?? [],
+      image_links: job.image_links ?? [],
+      cost_inr,
+      tokens,
+      usage,
+      model,
+      stub,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return json({ error: `Generation failed: ${message}` }, 500);

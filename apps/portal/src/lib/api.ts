@@ -133,6 +133,73 @@ export async function assignJobToRep(
   return { ok: !!data.ok, owner_name: data.owner_name ?? null };
 }
 
+/** One screening Q&A as the model returns it. */
+export interface ApiScreeningAnswer {
+  question: string;
+  answer: string;
+}
+
+/** A portfolio item the model recommends attaching. */
+export interface ApiPortfolioPick {
+  title: string;
+  page: number;
+  position: number;
+  why: string;
+}
+
+/** POST /generate response — the AI proposal + this job's work-sample links + cost. */
+export interface GenerateResult {
+  cover_letter: string;
+  screening_answers: ApiScreeningAnswer[];
+  portfolio_recommendations: ApiPortfolioPick[];
+  client_name_used: string | null;
+  // work-sample links pulled from jobs.looms / jobs.image_links (arrays)
+  looms: string[];
+  image_links: string[];
+  cost_inr: number;
+  tokens: number;
+  model: string;
+  stub: boolean;
+}
+
+/** Optional page-captured fields the caller may pass to enrich generation. */
+export interface GenerateOptions {
+  screening_questions?: string[];
+  client_name_hint?: string;
+}
+
+/**
+ * POST /generate — generate a real proposal for a job via the Worker (Claude Haiku).
+ * `jobId` is the Upwork job id (== Job.id in the portal); screening questions, if known,
+ * are passed so the model answers them in the same thread.
+ */
+export async function generateProposal(
+  token: string,
+  jobId: string,
+  opts: GenerateOptions = {},
+): Promise<GenerateResult> {
+  const res = await fetch(`${BASE}/generate`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ job_id: jobId, ...opts }),
+  });
+  if (res.status === 401) throw new UnauthorizedError("Session expired — please sign in again.");
+  const data = (await res.json().catch(() => ({}))) as Partial<GenerateResult> & { error?: string };
+  if (!res.ok) throw new Error(data.error || `Couldn't generate the proposal (${res.status})`);
+  return {
+    cover_letter: data.cover_letter ?? "",
+    screening_answers: data.screening_answers ?? [],
+    portfolio_recommendations: data.portfolio_recommendations ?? [],
+    client_name_used: data.client_name_used ?? null,
+    looms: data.looms ?? [],
+    image_links: data.image_links ?? [],
+    cost_inr: data.cost_inr ?? 0,
+    tokens: data.tokens ?? 0,
+    model: data.model ?? "",
+    stub: data.stub ?? false,
+  };
+}
+
 export async function fetchBoard(token: string, query: BoardQuery = {}): Promise<BoardPage> {
   const p = new URLSearchParams();
   if (query.tab) p.set("tab", query.tab);

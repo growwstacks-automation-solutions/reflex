@@ -48,6 +48,9 @@ historical baseline.** Key columns the app uses:
   `proposal_link`, `generation_status`, `cache_status`, `token_cost_inr`,
   `airtable_create_proposal_url`, `chat_url`, `cover_letter_links`, `attachments_count`,
   `attachments_filenames`
+- work samples (migration `0004`): `looms` (text[] — Loom walkthrough URLs), `image_links`
+  (text[] — image/screenshot URLs). The proposal workspace reads these to populate its
+  Work Samples picker; both are arrays (a job can carry several of each).
 
 > **Normalized vs denormalized:** `jobs` carries denormalized `proposal_*`/`picked_by_name`
 > fields (what n8n writes), AND the normalized `job_assignments` + `proposals` tables exist.

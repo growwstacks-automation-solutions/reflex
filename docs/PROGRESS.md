@@ -8,6 +8,34 @@ to look to see where things stand. Newest entry at the top.
 
 ## Session log
 
+### 2026-06-25 — Proposal workspace runs on real AI (`/generate`) + per-job work samples
+- **What:** "Generate proposal" in the portal now calls the live `POST /generate` Worker (Claude
+  Haiku) instead of showing the static `RX_DATA.proposal`/`assets` demo. The cover letter, screening
+  answers, and ₹ cost are all real; the Work Samples picker reads each job's own loom/image links.
+- **Did (DB, migration `0004_job_work_samples.sql`):** two new array columns on `jobs` —
+  **`looms text[]`** (Loom URLs) and **`image_links text[]`** (image/screenshot URLs), matching the
+  existing `skills text[]` convention. Mirrored in SCHEMA.md. **Manish to apply `0004` formally.**
+- **Did (API):** `job.ts` `fetchJob` now also selects `looms, image_links`, coerces them to clean
+  string arrays, and carries them on `JobInput` (NOT sent to the model — UI metadata). `index.ts`
+  `/generate` returns `looms` + `image_links` alongside the proposal. No prompt change.
+- **Did (frontend):** `api.ts` `generateProposal(token, jobId, opts)` → `GenerateResult`
+  (cover_letter, screening_answers, portfolio_recommendations, looms, image_links, cost_inr, …).
+  `ProposalWorkspace.tsx` rewired: the `generating` status now fires the real fetch (replacing the
+  fake 1.5s timer); results seed the editable cover/screening fields; new **`error`** status with a
+  retry; `WorkSamples` renders the job's DB looms/image_links (toggle-to-attach) instead of demo
+  assets; the aggregate ₹ cost shows in the proposal header; a 401 signs the rep out. `Copy all` /
+  `.txt` / `PDF` / `Mark as submitted` all operate on the real generated text.
+- **Verified:** portal `tsc` + `vite build` green; API `tsc` + `wrangler dry-run` green (live cfg is
+  `REFLEX_GENERATION_STUB="false"`, model `claude-haiku-4-5-20251001`, so real mode is already on).
+  **Not yet live-eyeballed in the browser** — needs the Worker running with `ANTHROPIC_API_KEY` +
+  `DATABASE_URL`, and `0004` applied so `looms`/`image_links` exist (until applied, the SELECT errors).
+- **Next:** apply `0004`; eyeball a real generate in the browser; persist the draft/attachments to
+  `proposals`/`proposal_assets` + wire mark-submitted to the DB (currently still local state). Pass
+  screening questions through when the extension captures them (the API already accepts them).
+- **Notes:** Reactive-only unchanged — generation never submits. Stub mode (`STUB_JOB`) has no
+  looms/image_links, so the picker is simply hidden there. `RX_DATA.proposal`/`assets` are still used
+  by the Assets screen; only the workspace stopped depending on them.
+
 ### 2026-06-25 — Admin reassignment: assign any job to any rep (inline picker)
 - **What:** admins can now (re)assign a job to any rep from the job board, and the denormalized
   `jobs.picked_by_name` updates with it (the column the admin watches go from "Neha" → "Sarthak").
