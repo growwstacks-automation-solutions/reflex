@@ -8,6 +8,7 @@ import { QualityChip, Ownership } from "@/components/ui";
 import { PageHeader } from "@/components/Shell";
 import { BellButton } from "@/components/bell";
 import type { Job, ActionLink } from "@/lib/types";
+import type { Rep } from "@/lib/api";
 
 export type TabId = "mine" | "available" | "all";
 type SortKey = "posted" | "created" | "budget" | "connects";
@@ -176,15 +177,62 @@ function TableHeader({
   );
 }
 
+/* ── Admin rep picker — assign/reassign a job to any rep, inline in the row ── */
+function RepPicker({
+  job, reps, onAssignToRep,
+}: {
+  job: Job; reps: Rep[]; onAssignToRep: (job: Job, repId: string) => void | Promise<void>;
+}): JSX.Element {
+  const [busy, setBusy] = useState(false);
+  // Preselect the current owner if we can match them by name (admin board surfaces owner.name).
+  const currentOwnerName = job.ownership === "mine" ? null : job.owner?.name || null;
+  const currentRep = currentOwnerName ? reps.find(r => r.full_name === currentOwnerName) : undefined;
+  const value = currentRep?.id || "";
+
+  return (
+    <div onClick={e => e.stopPropagation()} style={{ display: "inline-flex", alignItems: "center" }}>
+      <select
+        value={value}
+        disabled={busy || reps.length === 0}
+        onChange={async e => {
+          const repId = e.target.value;
+          if (!repId || repId === value) return;
+          setBusy(true);
+          try { await onAssignToRep(job, repId); }
+          finally { setBusy(false); }
+        }}
+        title={value ? `Owned by ${currentOwnerName} — pick a rep to reassign` : "Assign to a rep"}
+        style={{
+          maxWidth: 138, fontSize: 12, fontWeight: 600,
+          padding: "5px 8px", borderRadius: "var(--radius-button)",
+          border: "1px solid var(--border)", background: "var(--surface)",
+          color: value ? "var(--text-primary)" : "var(--text-secondary)",
+          cursor: busy ? "wait" : "pointer",
+        }}
+      >
+        <option value="" disabled>{value ? "Reassign…" : "Assign to…"}</option>
+        {reps.map(r => (
+          <option key={r.id} value={r.id}>{r.full_name}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 /* ── Row action cell ── */
 function RowAction({
-  job, onGenerate, onAssign, onRegenerate,
+  job, onGenerate, onAssign, onRegenerate, isAdmin, reps, onAssignToRep,
 }: {
   job: Job; onGenerate: () => void; onAssign: () => void; onRegenerate: () => void;
+  isAdmin: boolean; reps: Rep[]; onAssignToRep: (job: Job, repId: string) => void | Promise<void>;
 }): JSX.Element | null {
   const stop = (fn: () => void) => (e: MouseEvent) => { e.stopPropagation(); fn(); };
   if (job.relevance === "irrelevant") {
     return <span style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontStyle: "italic" }}>Auto-filtered</span>;
+  }
+  // Admins assign/reassign to any rep for non-terminal jobs (keep submitted/conversation as-is).
+  if (isAdmin && job.actionState === "not-actioned") {
+    return <RepPicker job={job} reps={reps} onAssignToRep={onAssignToRep} />;
   }
   if (job.actionState === "submitted") {
     return (
@@ -231,12 +279,16 @@ function RowAction({
 /* ── A single table row ── */
 export function JobRow({
   job, onOpen, onGenerate, onAssign, onRegenerate,
+  isAdmin = false, reps = [], onAssignToRep,
 }: {
   job: Job;
   onOpen: (job: Job) => void;
   onGenerate: (job: Job) => void;
   onAssign: (job: Job) => void;
   onRegenerate: (job: Job) => void;
+  isAdmin?: boolean;
+  reps?: Rep[];
+  onAssignToRep?: (job: Job, repId: string) => void | Promise<void>;
 }): JSX.Element {
   const [hover, setHover] = useState(false);
   const isIrrelevant = job.relevance === "irrelevant";
@@ -374,6 +426,9 @@ export function JobRow({
           onGenerate={() => onGenerate(job)}
           onAssign={() => onAssign(job)}
           onRegenerate={() => onRegenerate(job)}
+          isAdmin={isAdmin}
+          reps={reps}
+          onAssignToRep={onAssignToRep || (() => {})}
         />
       </div>
     </div>
@@ -617,6 +672,7 @@ export function JobBoard({
   controls, setControls, stats, total, pageSize,
   onNavigate, onOpen, onGenerate, onAssign, onRegenerate,
   loading, jobs, error, onRetry,
+  isAdmin = false, reps = [], onAssignToRep,
 }: {
   controls: BoardControls;
   setControls: (next: BoardControls) => void;
@@ -632,6 +688,9 @@ export function JobBoard({
   jobs: Job[];
   error?: string | null;
   onRetry?: () => void;
+  isAdmin?: boolean;
+  reps?: Rep[];
+  onAssignToRep?: (job: Job, repId: string) => void | Promise<void>;
 }): JSX.Element {
   // Any change to a filter/sort/tab resets to page 1; page changes keep the rest.
   const patch = (p: Partial<BoardControls>, resetPage = true) =>
@@ -723,6 +782,7 @@ export function JobBoard({
                   key={job.id} job={job}
                   onOpen={onOpen} onGenerate={onGenerate}
                   onAssign={onAssign} onRegenerate={onRegenerate}
+                  isAdmin={isAdmin} reps={reps} onAssignToRep={onAssignToRep}
                 />
               ))}
             </>

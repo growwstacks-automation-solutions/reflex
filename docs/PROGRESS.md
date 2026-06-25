@@ -8,6 +8,51 @@ to look to see where things stand. Newest entry at the top.
 
 ## Session log
 
+### 2026-06-25 — Admin reassignment: assign any job to any rep (inline picker)
+- **What:** admins can now (re)assign a job to any rep from the job board, and the denormalized
+  `jobs.picked_by_name` updates with it (the column the admin watches go from "Neha" → "Sarthak").
+- **Did (DB, migration `0003_assign_job.sql`):** new `assign_job(p_job_id, p_target_user_id)` —
+  validates the target is an `active` rep, releases any live owner (`release_reason='reassigned'`),
+  inserts a fresh live assignment, and mirrors the new owner's **first name** into
+  `jobs.picked_by_name` (matches the existing data form — `picked_by_name` is "Sarthak", not the
+  full_name "Sarthak Punasia"). Whole body is atomic, so the partial unique index never sees two
+  live rows. Mirrored in SCHEMA.md. claim_job (Assign to me) is unchanged.
+- **Did (API):** `assign.ts` — `GET /reps` (active reps, **admin-only 403 otherwise**) and
+  `POST /jobs/assign` `{upwork_job_id, user_id}` (admin-only) → resolves the internal job id, calls
+  `assign_job`, returns the new `owner_name`. Routed in `index.ts`.
+- **Did (frontend):** `api.ts` `fetchReps` + `assignJobToRep`; `App.tsx` detects admin
+  (`auth.user.role`), fetches the rep list once, and an `onAssignToRep` handler persists + updates the
+  row in place; `JobBoard.tsx` — for admins on non-actioned jobs, the row action cell shows a
+  **rep `<select>`** (current owner preselected, "Reassign…"/"Assign to…") instead of "Assign to me".
+  Reps keep their single "Assign to me" button (admin-only feature). Decided: portal dropdown is the
+  single entry point; the reverse direction (editing the column → trigger) was rejected as fragile.
+- **Verified:** portal `tsc`+`build`, API `tsc`+`wrangler dry-run` all green. **Live function test on
+  Neon** (then state RESTORED): a job owned by Neha (`picked_by_name`="Neha") → `assign_job(…,Sarthak)`
+  → live owner Sarthak, **`picked_by_name`="Sarthak"**, 1 release reason 'reassigned'; restored to
+  Neha after. `GET /reps` live returns 401 unauth (admin gate wired). assign_job is in the DB via the
+  test's CREATE OR REPLACE — **Manish should still apply `0003` formally** so it's tracked.
+- **Next:** rep "Assign to me" still only mutates local state (no `claim_job` call yet) — wire that +
+  mark-submitted. Optionally reflect a reassign by refetching the page so a reassigned-away job leaves
+  a rep's filtered view.
+- **Notes:** Admin assign is offered only for `not-actioned` jobs (submitted/conversation keep their
+  status display). The picker matches the current owner by name; if `picked_by_name` ever diverges
+  from a rep first-name it just won't preselect — assignment still works.
+
+### 2026-06-25 — Fix: admin board "Failed to fetch" (parameter-binding bug in paged query)
+- **Problem:** after pagination landed, **admin** (Shubham/Manish) got "Couldn't load the board —
+  Failed to fetch". Root cause: the count + stats queries were given `[user.sub]` as a param, but on
+  the admin "all" tab their SQL has **no `$N` placeholder** (empty WHERE) → Postgres rejected it
+  ("bind message supplies 1 parameters, but prepared statement requires 0"), the Worker threw, and
+  the browser surfaced it as a network "Failed to fetch".
+- **Did (`apps/api/src/board.ts`):** bind the user id **lazily** — `userP()` pushes `user.sub` and
+  returns its `$N` only when a clause actually references it; `selectCols` became a fn taking that
+  placeholder. Now each query (count / rows / stats) is handed **exactly** the params its text uses;
+  admin/all binds zero params for count+stats and one (`$1`, for `is_mine`) for the rows query.
+- **Verified:** API `tsc` + `wrangler dry-run` green. Simulated the Worker's exact logic on live Neon
+  across all role/tab/filter combos — **ADMIN/all = 1297**, admin/all+relevant = 734 (KPI on_board
+  still 1297), rep/all = 726, rep/available = 85, rep/mine+good = 0 — **no bind errors**.
+- **Next:** unchanged (claim + mark-submitted). **Restart `wrangler dev`** to pick up the fix.
+
 ### 2026-06-25 — Server-side board pagination (filter/sort/page in Postgres) + exact timestamps
 - **Problem:** the board loaded the rep's whole dataset (864 rows) / admin's 1288 in one fetch and
   did all tab/relevance/quality filtering + sorting in the browser — slow at 1000+ rows.

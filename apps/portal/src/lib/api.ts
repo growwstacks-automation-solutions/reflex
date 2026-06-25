@@ -98,6 +98,41 @@ export interface BoardPage {
   stats: BoardStats;
 }
 
+/** An assignable rep, for the admin's row-action picker. */
+export interface Rep {
+  id: string;
+  full_name: string;
+  role: string;
+}
+
+/** GET /reps — active reps (admin-only). */
+export async function fetchReps(token: string): Promise<Rep[]> {
+  const res = await fetch(`${BASE}/reps`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (res.status === 401) throw new UnauthorizedError("Session expired — please sign in again.");
+  const data = (await res.json().catch(() => ({}))) as { reps?: Rep[]; error?: string };
+  if (!res.ok) throw new Error(data.error || `Couldn't load reps (${res.status})`);
+  return data.reps || [];
+}
+
+/** POST /jobs/assign — (re)assign a job to a rep (admin-only). Returns the new owner name. */
+export async function assignJobToRep(
+  token: string,
+  upworkJobId: string,
+  userId: string,
+): Promise<{ ok: boolean; owner_name: string | null }> {
+  const res = await fetch(`${BASE}/jobs/assign`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ upwork_job_id: upworkJobId, user_id: userId }),
+  });
+  if (res.status === 401) throw new UnauthorizedError("Session expired — please sign in again.");
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; owner_name?: string | null; error?: string };
+  if (!res.ok) throw new Error(data.error || `Assignment failed (${res.status})`);
+  return { ok: !!data.ok, owner_name: data.owner_name ?? null };
+}
+
 export async function fetchBoard(token: string, query: BoardQuery = {}): Promise<BoardPage> {
   const p = new URLSearchParams();
   if (query.tab) p.set("tab", query.tab);

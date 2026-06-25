@@ -87,6 +87,10 @@ spent), `note`, `created_at`. "Connects left" is a computed/cached balance.
 ## Functions (in Postgres)
 
 - `claim_job(job, user)` → race-safe "Assign to me"; fails cleanly if already owned.
+- `assign_job(job, target_user)` → **admin reassignment** (migration `0003`): releases any live
+  owner (`release_reason = 'reassigned'`) then inserts a live assignment for `target_user`,
+  atomically. Validates the target is an `active` user. Use this (not `claim_job`) to move an
+  already-owned job between reps.
 - `auto_assign_on_shift(job)` → assigns a new job to whoever is on shift now (handles
   midnight-wrapping windows; round-robin by `last_active_at`).
 - `release_stale_assignments(hours=2)` → frees jobs owned >N hours with no submitted

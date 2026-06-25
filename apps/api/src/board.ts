@@ -34,14 +34,16 @@ const SORT_COLUMNS: Record<string, string> = {
   connects: "j.connects",
 };
 
-const SELECT_COLS = `
+// is_mine compares the live owner to the requester. $N is wherever the user id is bound
+// (always $1 here, but kept as a placeholder for clarity).
+const selectCols = (userP: string) => `
   j.upwork_job_id, j.title, j.verdict, j.quality, j.budget_text,
   j.contract_type, j.fixed_amount, j.hourly_min, j.hourly_max,
   j.client_country, j.client_country_code, j.connects,
   j.posted_at, j.created_at, j.reason, j.proposal_status,
   j.description, j.url, j.client_spend, j.client_city, j.client_timezone,
   j.client_billing_type, j.client_payment_verified, j.last_client_activity,
-  (a.user_id = $1) as is_mine,
+  (a.user_id = ${userP}) as is_mine,
   (a.user_id is null) as is_available,
   owner.full_name as owner_name`;
 
@@ -79,17 +81,31 @@ export async function board(req: Request, env: Env): Promise<Response> {
 
   const sortExpr = SORT_COLUMNS[sortKey] || SORT_COLUMNS.posted;
 
-  // ── Build the WHERE clause with bound params ($1 is the user id, always) ────
-  const params: unknown[] = [user.sub];
+  // ── Build the WHERE clause + its bound params ──────────────────────────────
+  // CRITICAL: each query must be given EXACTLY the params its text references by $N.
+  // A query string with no $N must get an empty params array, or Postgres rejects it
+  // ("bind message supplies N parameters, but prepared statement requires 0"). The user
+  // id is therefore pushed into `params` ONLY when a clause actually references it — which
+  // is why admin-on-the-"all"-tab (no WHERE) ends up with an empty params array.
+  const params: unknown[] = [];
   const where: string[] = [];
+  // Lazily bind the user id and return its $N (memoized so repeated uses share one bind).
+  let userPlaceholder: string | null = null;
+  const userP = (): string => {
+    if (userPlaceholder === null) {
+      params.push(user.sub);
+      userPlaceholder = `$${params.length}`;
+    }
+    return userPlaceholder;
+  };
 
   // Role/tab scope.
   if (!isAdmin) {
-    // Rep base scope: own OR unowned. Bound user id is $1.
-    where.push(`(a.user_id = $1 or a.user_id is null)`);
+    // Rep base scope: own OR unowned.
+    where.push(`(a.user_id = ${userP()} or a.user_id is null)`);
   }
   if (tab === "mine") {
-    where.push(`a.user_id = $1`);
+    where.push(`a.user_id = ${userP()}`);
   } else if (tab === "available") {
     where.push(`a.user_id is null`);
   }
@@ -120,21 +136,22 @@ export async function board(req: Request, env: Env): Promise<Response> {
 
   const sql = neon(env.DATABASE_URL);
 
-  // ── Total (for page count) + the page itself ───────────────────────────────
+  // ── Total (for page count) — references only the WHERE params built above ──
   const countRows = (await sql.query(
     `select count(*)::int as total ${FROM_JOINS} ${whereSql}`,
-    params,
+    [...params],
   )) as Array<{ total: number }>;
   const total = countRows[0]?.total ?? 0;
 
+  // ── The page itself — selectCols also needs the user id, so ensure it's bound ──
+  const isMineP = userP(); // binds $N if not already bound (e.g. admin/all had none)
   const offset = (page - 1) * pageSize;
-  // LIMIT/OFFSET appended as the last two bound params.
   params.push(pageSize, offset);
   const limitP = `$${params.length - 1}`;
   const offsetP = `$${params.length}`;
 
   const rows = (await sql.query(
-    `select ${SELECT_COLS}
+    `select ${selectCols(isMineP)}
      ${FROM_JOINS}
      ${whereSql}
      order by ${sortExpr} ${dir} nulls last, j.upwork_job_id ${dir}
@@ -150,6 +167,9 @@ export async function board(req: Request, env: Env): Promise<Response> {
   if (tab === "mine") statsWhere.push(`a.user_id = $1`);
   else if (tab === "available") statsWhere.push(`a.user_id is null`);
   const statsWhereSql = statsWhere.length ? `where ${statsWhere.join(" and ")}` : "";
+  // Only bind $1 when the stats WHERE actually references it. Admin on the "all" tab has
+  // no WHERE → zero placeholders, so binding a param would error ("supplies 1 … requires 0").
+  const statsParams = statsWhere.length ? [user.sub] : [];
 
   const statsRows = (await sql.query(
     `select
@@ -158,7 +178,7 @@ export async function board(req: Request, env: Env): Promise<Response> {
        count(*) filter (where j.verdict in ('review','needs_review') or j.verdict is null)::int as review,
        count(*) filter (where j.proposal_status = 'Submitted')::int as submitted
      ${FROM_JOINS} ${statsWhereSql}`,
-    [user.sub],
+    statsParams,
   )) as Array<{ on_board: number; relevant: number; review: number; submitted: number }>;
   const stats = statsRows[0] ?? { on_board: 0, relevant: 0, review: 0, submitted: 0 };
 

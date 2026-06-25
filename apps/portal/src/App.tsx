@@ -15,7 +15,8 @@ import { RX_DATA } from "@/lib/mock-data";
 import type { ActionLink, Job } from "@/lib/types";
 import { useAuth } from "@/lib/auth";
 import { LoginScreen } from "@/components/LoginScreen";
-import { fetchBoard, UnauthorizedError } from "@/lib/api";
+import { fetchBoard, fetchReps, assignJobToRep, UnauthorizedError } from "@/lib/api";
+import type { Rep } from "@/lib/api";
 import { adaptJob } from "@/lib/adapt-job";
 
 /* The "Proposals" screen — drafts/submissions the rep is working. */
@@ -66,7 +67,10 @@ export default function App() {
   const [boardError, setBoardError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [convoId, setConvoId] = useState<string | null>(null);
+  const [reps, setReps] = useState<Rep[]>([]);
   const [, force] = useReducer((x: number) => x + 1, 0);
+
+  const isAdmin = auth.user?.role === "admin";
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
@@ -109,6 +113,23 @@ export default function App() {
     };
   }, [auth.token, reloadKey, controls]);
 
+  // Admins get the rep list (for the row-action assign picker). Fetched once on auth.
+  useEffect(() => {
+    if (!auth.token || !isAdmin) return;
+    let cancelled = false;
+    fetchReps(auth.token)
+      .then((rows) => {
+        if (!cancelled) setReps(rows);
+      })
+      .catch((err) => {
+        if (err instanceof UnauthorizedError) auth.signOut();
+        // A reps-load failure isn't fatal — the picker just shows empty; board still works.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.token, isAdmin]);
+
   const openWorkspace = (job: Job, status?: WorkspaceStatus, regen?: boolean) => {
     setPeekJob(null);
     setWorkspace({ job, status: status || "idle", regen: !!regen });
@@ -120,6 +141,30 @@ export default function App() {
     job.ownership = "mine";
     setPeekJob(null);
     force();
+  };
+
+  // Admin (re)assigns a job to a chosen rep. Persists via the API, then updates the row.
+  const onAssignToRep = async (job: Job, repId: string) => {
+    if (!auth.token) return;
+    const rep = reps.find((r) => r.id === repId);
+    try {
+      const res = await assignJobToRep(auth.token, job.id, repId);
+      const ownerName = res.owner_name ?? rep?.full_name ?? "";
+      // Mutate the row in place: it now belongs to that rep ("other" from the admin's view).
+      const isMe = auth.user?.id === repId;
+      job.ownership = isMe ? "mine" : "other";
+      job.owner = isMe
+        ? undefined
+        : { name: ownerName, first: ownerName.split(" ")[0], bg: "var(--surface-2)", fg: "var(--text-secondary)" };
+      force();
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        auth.signOut();
+        return;
+      }
+      // Surface the failure; the board state is unchanged.
+      alert(err instanceof Error ? err.message : "Couldn't assign the job.");
+    }
   };
   const onMarkSubmitted = (job: Job) => {
     job.actionState = "submitted";
@@ -175,6 +220,9 @@ export default function App() {
             onGenerate={onGenerate}
             onAssign={onAssign}
             onRegenerate={onRegenerate}
+            isAdmin={!!isAdmin}
+            reps={reps}
+            onAssignToRep={onAssignToRep}
           />
         )}
         {screen === "workspace" && workspace && (
