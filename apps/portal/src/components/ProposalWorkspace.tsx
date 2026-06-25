@@ -91,32 +91,94 @@ function MiniRow({ label, value }: { label: string; value: React.ReactNode }) {
 function JobContextCard({ job }: { job: Job }) {
   const c = job.client;
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: 0, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-sm)" }}>
-      <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--border)" }}>
+    <div style={{
+      display: "flex", flexDirection: "column", minHeight: 0,
+      background: "var(--bg-card)", border: "1px solid var(--border)",
+      borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-sm)",
+      overflow: "hidden",
+    }}>
+
+      {/* ── Fixed header: label + badges + title + reason ── */}
+      <div style={{ flexShrink: 0, padding: "16px 18px", borderBottom: "1px solid var(--border)" }}>
+        {/* Top: label right-aligned, badges left */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <RelevanceBadge state={job.relevance} />
+          <RelevanceBadge state={job.relevance} dense />
           <QualityChip quality={job.quality} dense />
-          <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>The job</span>
+          <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>The job</span>
         </div>
-        <h2 style={{ margin: "0 0 12px", fontSize: 16.5, fontWeight: 600, lineHeight: 1.35, letterSpacing: "-0.01em" }}>{job.title}</h2>
-        <div style={{ display: "flex", gap: 9, padding: "10px 12px", background: "var(--accent-tint)", borderRadius: 8 }}>
-          <span style={{ color: "var(--accent)", flex: "none", marginTop: 1 }}><RXIcons.spark size={14} /></span>
-          <div style={{ fontSize: 12.5, color: "var(--text-primary)", lineHeight: 1.45 }}>{job.reason}</div>
-        </div>
+
+        {/* Title */}
+        <h2 style={{ margin: "0 0 12px", fontSize: 15.5, fontWeight: 700, lineHeight: 1.35, letterSpacing: "-0.015em", color: "var(--text-primary)" }}>
+          {job.title}
+        </h2>
+
+        {/* Why this job */}
+        {job.reason && (
+          <div style={{ display: "flex", gap: 8, padding: "9px 12px", background: "var(--accent-tint)", borderRadius: 8, borderLeft: "3px solid var(--accent)" }}>
+            <RXIcons.spark size={13} style={{ color: "var(--accent)", flexShrink: 0, marginTop: 2 }} />
+            <div style={{ fontSize: 12.5, color: "var(--text-primary)", lineHeight: 1.5 }}>{job.reason}</div>
+          </div>
+        )}
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px" }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-          {job.chips.map((ch, i) => <TaxonomyChip key={i} level={ch.level} isNew={ch.isNew}>{ch.label}</TaxonomyChip>)}
+      {/* ── Fixed meta strip: budget · connects · posted ── */}
+      <div style={{
+        flexShrink: 0, display: "flex", gap: 0,
+        borderBottom: "1px solid var(--border)",
+      }}>
+        {[
+          { label: "Budget",   value: job.budget   || "—" },
+          { label: "Connects", value: String(job.connects || "—") },
+          { label: "Posted",   value: job.postedAgo },
+        ].map((m, i, arr) => (
+          <div key={m.label} style={{
+            flex: 1, padding: "10px 14px",
+            borderRight: i < arr.length - 1 ? "1px solid var(--border)" : "none",
+          }}>
+            <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", fontWeight: 500, marginBottom: 3, letterSpacing: "0.02em" }}>{m.label}</div>
+            <Mono style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text-primary)" }}>{m.value}</Mono>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Scrollable body: description + client snapshot ── */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", display: "flex", flexDirection: "column", gap: 18 }}>
+
+        {/* Taxonomy chips */}
+        {job.chips.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {job.chips.map((ch, i) => <TaxonomyChip key={i} level={ch.level} isNew={ch.isNew}>{ch.label}</TaxonomyChip>)}
+          </div>
+        )}
+
+        {/* Job description */}
+        <div>
+          <Eyebrow style={{ marginBottom: 8 }}>Job description</Eyebrow>
+          <p style={{
+            margin: 0, fontSize: 13, lineHeight: 1.7,
+            color: "var(--text-secondary)", whiteSpace: "pre-wrap", wordBreak: "break-word",
+          }}>{job.desc || "No description available."}</p>
         </div>
-        <Eyebrow style={{ marginBottom: 6 }}>Job description</Eyebrow>
-        <p style={{ margin: "0 0 18px", fontSize: 13.5, lineHeight: 1.6, color: "var(--text-secondary)" }}>{job.desc}</p>
-        <Eyebrow style={{ marginBottom: 6 }}>Client snapshot</Eyebrow>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 18px" }}>
-          <MiniRow label="Spend" value={<Mono>{c.spend}</Mono>} />
-          <MiniRow label="Hire rate" value={<Mono>{c.hireRate}</Mono>} />
-          <MiniRow label="Location" value={c.location} />
-          <MiniRow label="Payment" value={c.payment} />
+
+        {/* Client snapshot */}
+        <div>
+          <Eyebrow style={{ marginBottom: 8 }}>Client snapshot</Eyebrow>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <MiniRow label="Spend"     value={<Mono>{c.spend    || "—"}</Mono>} />
+            <MiniRow label="Hire rate" value={<Mono>{c.hireRate || "—"}</Mono>} />
+            <MiniRow label="Location"  value={c.location || "—"} />
+            <MiniRow
+              label="Payment"
+              value={
+                c.payment === "Verified"
+                  ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--relevant-text)", fontWeight: 600, fontSize: 12.5 }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                      Verified
+                    </span>
+                  : c.payment || "—"
+              }
+            />
+          </div>
         </div>
       </div>
     </div>
