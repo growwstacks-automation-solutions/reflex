@@ -97,6 +97,10 @@
   let rfxGenJobId = "";     // the job the current proposal draft is for
   let rfxGenResult = null;  // the /generate response (cover letter, answers, portfolio recs, cost)
   let rfxGenError = "";     // last generation error message
+  let rfxAuth = null;       // { token, user } from the background (signed-in rep), or null
+  let rfxAddData = null;    // captured job under review in the "Add to Reflex" card
+  let rfxAddOpen = false;   // true while the Add review card is showing (suppresses mirror re-render)
+  let rfxAwaitOpenForAdd = null; // jobId the rep wants to add from the listing — waiting for them to open it
 
   /* ---------- build launcher ---------- */
   const launcher = document.createElement("button");
@@ -135,26 +139,83 @@
 
   function openPanel() {
     root.classList.add("rfx-open"); launcher.classList.add("rfx-hidden");
-    if (isApplyPage()) {
-      surface = "proposal";                 // on the apply page -> Proposal tab
-    } else {
-      const openId = openJobNumericId();
-      if (openId) { surface = "job"; rfxLastOpenId = openId; } // a job is open -> show it
-    }
-    render(); startMirror();
+    // Gate everything behind sign-in: until the rep is signed in, the panel shows the
+    // sign-in prompt instead of any surface. Auth lives in the toolbar popup; we read it
+    // from the background (chrome.storage.local) here.
+    refreshAuth(() => {
+      if (rfxAuth && rfxAuth.token) {
+        if (isApplyPage()) {
+          surface = "proposal";                 // on the apply page -> Proposal tab
+        } else {
+          const openId = openJobNumericId();
+          if (openId) { surface = "job"; rfxLastOpenId = openId; } // a job is open -> show it
+        }
+        render(); startMirror();
+      } else {
+        render();                                // signed out -> sign-in gate (no mirror)
+      }
+    });
   }
   function closePanel() { root.classList.remove("rfx-open"); launcher.classList.remove("rfx-hidden"); stopMirror(); }
 
   /* ---------- render ---------- */
   function render() {
+    rfxAddOpen = false;          // any full render leaves the Add review card
+    rfxAwaitOpenForAdd = null;   // ...and clears the "open the job first" prompt
+    updateAuthChrome(); // header user line + footer (signed-in name lives at the bottom)
     root.querySelectorAll(".rfx-tab").forEach(t =>
       t.classList.toggle("rfx-active", t.dataset.s === surface));
     const body = root.querySelector("#rfx-body");
+    // Not signed in -> show the sign-in gate instead of any surface.
+    if (!rfxAuth || !rfxAuth.token) {
+      body.innerHTML = renderAuthGate();
+      wire(body);
+      return;
+    }
     if (surface === "listing")  body.innerHTML = renderListing();
     if (surface === "job")      body.innerHTML = renderJob();
     if (surface === "proposal") body.innerHTML = renderProposal();
     if (surface === "messages") body.innerHTML = renderMessages();
     wire(body);
+  }
+
+  /* The signed-in rep's name shows at the bottom of the panel (and the header line).
+     Signed out -> the original prompts. */
+  function updateAuthChrome() {
+    const userEl = root.querySelector(".rfx-user");
+    const footEl = root.querySelector(".rfx-footer");
+    const signedIn = !!(rfxAuth && rfxAuth.token);
+    const nm = signedIn
+      ? ((rfxAuth.user && (rfxAuth.user.full_name || rfxAuth.user.email)) || "Signed in")
+      : "";
+    if (userEl) userEl.textContent = signedIn ? nm : "Sign in to sync your jobs";
+    if (footEl) footEl.innerHTML = signedIn
+      ? `<span class="rfx-sync-dot"></span> Signed in as ${esc(nm)}`
+      : `<span class="rfx-sync-dot"></span> Listing is live from ${SYSTEM_NAME} · sign in to sync your assignments`;
+  }
+
+  /* Sign-in gate: shown in the body until the rep signs in via the toolbar popup. */
+  function renderAuthGate() {
+    return `
+      <div class="rfx-context-note">Sign in to ${SYSTEM_NAME} to use this panel — your jobs, proposals, and assignments live behind your account.</div>
+      <div class="rfx-authgate">
+        <div class="rfx-authgate-ic">🔒</div>
+        <div class="rfx-authgate-t">
+          <b>Sign in required</b>
+          <span>Click the <b>${SYSTEM_NAME}</b> icon in your browser toolbar and sign in, then come back here.</span>
+        </div>
+        <button class="rfx-btn primary full rfx-mt" data-auth-refresh>I've signed in — refresh</button>
+      </div>`;
+  }
+
+  /* Read the signed-in rep from the background (chrome.storage.local). */
+  function refreshAuth(cb) {
+    try {
+      chrome.runtime.sendMessage({ type: "GET_AUTH" }, (resp) => {
+        rfxAuth = (!chrome.runtime.lastError && resp && resp.token) ? resp : null;
+        if (cb) cb();
+      });
+    } catch (e) { rfxAuth = null; if (cb) cb(); }
   }
 
   /* Generate a proposal: switch to the Proposal tab, show a waiting state, then call
@@ -203,6 +264,244 @@
   function readScreeningQuestionTexts() {
     try { return readScreeningQuestions().map((q) => q.question).filter(Boolean); }
     catch (e) { return []; }
+  }
+
+  /* ---- Add to Reflex (inline review card) ----
+     Clicking "+ Add to Reflex" opens a review card IN the panel showing what we captured
+     from the page; Confirm POSTs it to the Worker (/jobs/add), which inserts it and claims
+     it for the signed-in rep. Read-only capture — we never write to Upwork. */
+
+  // Build the Add payload. Rich when the job under the cursor is the one open on Upwork
+  // (readOpenJob); otherwise (a listing card for a job that isn't open) just id + title.
+  // Best-effort skill chips from the "Skills and Expertise" area (skips the "+N more" pill;
+  // skills hidden behind it aren't in the DOM until expanded). Tries the common selectors.
+  function readSkillTokens(region) {
+    const out = [];
+    region.querySelectorAll(
+      "[data-test='Skill'] a, [data-test='Skill'], [data-test='token'], .air3-token, .up-skill-badge, .skill-name"
+    ).forEach((el) => {
+      const t = (el.textContent || "").trim().replace(/\s+/g, " ");
+      if (t && !/^\+\s*\d+\s*more$/i.test(t) && t.length <= 40) out.push(t);
+    });
+    return Array.from(new Set(out)).slice(0, 25);
+  }
+
+  // Best-effort client country/city from the "About the client" block (selectors vary).
+  function readClientLocation(region) {
+    const el = region.querySelector(
+      "[data-qa='client-location'], [data-test='client-location'], [data-test='LocationLabel']"
+    );
+    if (!el) return { country: "", city: "" };
+    const parts = (el.textContent || "").split(/\n|·/).map((s) => s.trim()).filter(Boolean);
+    return { country: parts[0] || "", city: parts[1] || "" };
+  }
+
+  function collectAddData(jobId, fallbackTitle) {
+    const open = readOpenJob();
+    if (!(open && open.id === jobId)) {
+      return { upwork_job_id: jobId, title: (fallbackTitle || "").trim() || "(untitled job)" };
+    }
+    // Scope to the job-detail region; fall back to the page body on a detail page.
+    const region = findDetailRegion() || document.body;
+    const text = (region.textContent || "").replace(/\s+/g, " ");
+    const pick = (re) => { const m = text.match(re); return m ? (m[1] != null ? m[1] : m[0]).trim() : ""; };
+
+    const contract_type = /fixed-price/i.test(text) ? "Fixed-price" : (/\bhourly\b/i.test(text) ? "Hourly" : "");
+    const budget_text = pick(/\$[\d.,]+(?:\.\d{2})?(?:\s*-\s*\$?[\d.,]+)?(?:\s*\/\s*hr)?/i);
+    const expRaw = pick(/\b(entry level|intermediate|expert)\b/i).toLowerCase();
+    const experience_level = expRaw === "entry level" ? "Entry level"
+      : expRaw === "intermediate" ? "Intermediate" : expRaw === "expert" ? "Expert" : "";
+    const client_spend = pick(/\$[\d.,]+\s*[kmb]?\+?\s*(?:total\s*)?spent/i);
+    const client_payment_verified = /payment (?:method )?verified/i.test(text) ? true : null;
+    const loc = readClientLocation(region);
+
+    return {
+      upwork_job_id: jobId,
+      title: open.title || fallbackTitle || "(untitled job)",
+      description: open.description || "",
+      url: location.href,                              // the open job's real Upwork URL
+      skills: readSkillTokens(region),
+      budget_text,
+      contract_type,
+      experience_level,
+      client_country: loc.country,
+      client_city: loc.city,
+      client_spend,
+      client_payment_verified,
+    };
+  }
+
+  // Ask the background to POST /jobs/add. Resolves to { ok, status } or { error }.
+  function apiAddJob(payload) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "ADD_JOB", payload }, (resp) => {
+          if (chrome.runtime.lastError || !resp) {
+            resolve({ error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || "No response from background" });
+            return;
+          }
+          resolve(resp);
+        });
+      } catch (e) { resolve({ error: String(e) }); }
+    });
+  }
+
+  // Defaults for the editable AI fields (hardcoded until a classifier exists). Values match
+  // the DB: verdict is the job_verdict enum, quality is text. Kept in sync with addJob.ts.
+  const ADD_AI_DEFAULTS = {
+    verdict: "review",  // relevant | review | irrelevant
+    quality: "medium",  // good | medium | poor
+    reason: "Added manually from the extension — pending classification.",
+  };
+
+  // The editable Add form — every non-system field as an input, prefilled from the page
+  // capture. AI fields use the hardcoded defaults (editable). Owner + Upwork id are
+  // system/identity, shown read-only.
+  function renderAddForm(d) {
+    const val = (x) => esc(x == null ? "" : x);
+    const text = (k, label, v, ph) =>
+      `<label class="rfx-add-frow"><span class="rfx-add-k">${esc(label)}</span>` +
+      `<input class="rfx-add-input" data-f="${k}" value="${val(v)}" placeholder="${esc(ph || "")}"></label>`;
+    const numf = (k, label, v) =>
+      `<label class="rfx-add-frow"><span class="rfx-add-k">${esc(label)}</span>` +
+      `<input class="rfx-add-input" type="number" min="0" data-f="${k}" value="${val(v)}"></label>`;
+    const area = (k, label, v) =>
+      `<label class="rfx-add-frow col"><span class="rfx-add-k">${esc(label)}</span>` +
+      `<textarea class="rfx-edit" data-f="${k}">${val(v)}</textarea></label>`;
+    const sel = (k, label, v, opts) =>
+      `<label class="rfx-add-frow"><span class="rfx-add-k">${esc(label)}</span>` +
+      `<select class="rfx-add-select" data-f="${k}">` +
+      opts.map((o) => `<option value="${esc(o.v)}"${o.v === (v == null ? "" : String(v)) ? " selected" : ""}>${esc(o.t)}</option>`).join("") +
+      `</select></label>`;
+
+    const ai = ADD_AI_DEFAULTS;
+    const ownerName = (rfxAuth && rfxAuth.user && (rfxAuth.user.full_name || rfxAuth.user.email)) || "you";
+    const skillsStr = Array.isArray(d.skills) ? d.skills.join(", ") : (d.skills || "");
+    const pay = d.client_payment_verified === true ? "true" : d.client_payment_verified === false ? "false" : "";
+
+    return `
+      <div class="rfx-context-note">All the fields ${SYSTEM_NAME} will save — edit anything, then confirm. The job is added to your board and claimed by you.</div>
+
+      <div class="rfx-prop-sec">
+        <div class="rfx-section-label">Job — captured from Upwork (editable)</div>
+        ${text("title", "Title", d.title)}
+        ${text("budget_text", "Budget", d.budget_text)}
+        ${sel("contract_type", "Type", d.contract_type, [{ v: "", t: "—" }, { v: "Fixed-price", t: "Fixed-price" }, { v: "Hourly", t: "Hourly" }])}
+        ${sel("experience_level", "Experience", d.experience_level, [{ v: "", t: "—" }, { v: "Entry level", t: "Entry level" }, { v: "Intermediate", t: "Intermediate" }, { v: "Expert", t: "Expert" }])}
+        ${numf("connects", "Connects", d.connects)}
+        ${text("skills", "Skills", skillsStr, "comma, separated")}
+        ${text("url", "URL", d.url)}
+        ${area("description", "Description", d.description)}
+      </div>
+
+      <div class="rfx-prop-sec">
+        <div class="rfx-section-label">Client (editable)</div>
+        ${text("client_country", "Country", d.client_country)}
+        ${text("client_city", "City", d.client_city)}
+        ${text("client_spend", "Spend", d.client_spend)}
+        ${sel("client_payment_verified", "Payment", pay, [{ v: "", t: "Unknown" }, { v: "true", t: "Verified" }, { v: "false", t: "Not verified" }])}
+      </div>
+
+      <div class="rfx-prop-sec">
+        <div class="rfx-section-label">AI fields — hardcoded for now (editable)</div>
+        ${sel("verdict", "Relevance", d.verdict || ai.verdict, [{ v: "relevant", t: "Relevant" }, { v: "review", t: "Needs review" }, { v: "irrelevant", t: "Not a fit" }])}
+        ${sel("quality", "Quality", d.quality || ai.quality, [{ v: "good", t: "Good" }, { v: "medium", t: "Medium" }, { v: "poor", t: "Poor" }])}
+        ${area("reason", "Reason", d.reason || ai.reason)}
+        <div class="rfx-add-note">Taxonomy (tool · use case · department · industry) is set later by classification.</div>
+      </div>
+
+      <div class="rfx-prop-sec">
+        <div class="rfx-section-label">Set automatically</div>
+        <div class="rfx-add-row"><span class="rfx-add-k">Owner</span><span class="rfx-add-v">${esc(ownerName)} (you)</span></div>
+        <div class="rfx-add-row"><span class="rfx-add-k">Upwork ID</span><span class="rfx-add-v">${d.upwork_job_id ? esc(d.upwork_job_id) : `<span class="rfx-add-empty">—</span>`}</span></div>
+      </div>
+
+      <div class="rfx-add-err hidden" data-add-err></div>
+      <div class="rfx-between rfx-mt">
+        <button class="rfx-btn ghost" data-add-cancel>Cancel</button>
+        <button class="rfx-btn primary" data-add-confirm>Confirm add</button>
+      </div>`;
+  }
+
+  // Read the editable form back into an Add payload.
+  function readAddForm(body) {
+    const get = (k) => { const el = body.querySelector(`[data-f="${k}"]`); return el ? el.value : ""; };
+    const pay = get("client_payment_verified");
+    const connects = get("connects");
+    return {
+      upwork_job_id: (rfxAddData && rfxAddData.upwork_job_id) || "",
+      title: get("title").trim(),
+      description: get("description"),
+      url: get("url"),
+      skills: get("skills").split(",").map((x) => x.trim()).filter(Boolean),
+      budget_text: get("budget_text"),
+      contract_type: get("contract_type"),
+      experience_level: get("experience_level"),
+      connects: connects === "" ? null : Number(connects),
+      client_country: get("client_country"),
+      client_city: get("client_city"),
+      client_spend: get("client_spend"),
+      client_payment_verified: pay === "true" ? true : pay === "false" ? false : null,
+      verdict: get("verdict") || "review",
+      quality: get("quality") || "medium",
+      reason: get("reason"),
+    };
+  }
+
+  // Listing Add: we don't have the job's details yet. Ask the rep to open it on Upwork;
+  // the mirror then auto-switches to the Job tab (where Add captures the full record).
+  function renderOpenJobPrompt(title) {
+    return `
+      <div class="rfx-context-note">To add a job, ${SYSTEM_NAME} needs its full details — open it on Upwork first.</div>
+      <div class="rfx-authgate">
+        <div class="rfx-authgate-ic">📄</div>
+        <div class="rfx-authgate-t">
+          <b>Open the job first</b>
+          <span>Click <b>${esc(title || "this job")}</b> on Upwork to open its details. ${SYSTEM_NAME} will switch to the <b>Job</b> tab automatically, where you can add it with all its fields.</span>
+        </div>
+        <button class="rfx-btn ghost full rfx-mt" data-openprompt-cancel>Back to listing</button>
+      </div>`;
+  }
+
+  function promptOpenJobToAdd(jobId, title) {
+    rfxAwaitOpenForAdd = jobId;
+    const body = root.querySelector("#rfx-body");
+    body.innerHTML = renderOpenJobPrompt(title);
+    const cancel = body.querySelector("[data-openprompt-cancel]");
+    if (cancel) cancel.addEventListener("click", () => { rfxAwaitOpenForAdd = null; render(); });
+  }
+
+  function openAddReview(jobId, fallbackTitle) {
+    if (!jobId) return;
+    rfxAddData = collectAddData(jobId, fallbackTitle);
+    rfxAddOpen = true; // hold off the mirror so Upwork DOM churn won't wipe this card
+    const body = root.querySelector("#rfx-body");
+    body.innerHTML = renderAddForm(rfxAddData);
+    const cancel = body.querySelector("[data-add-cancel]");
+    if (cancel) cancel.addEventListener("click", () => render());
+    const confirm = body.querySelector("[data-add-confirm]");
+    if (confirm) confirm.addEventListener("click", () => submitAdd(confirm));
+  }
+
+  async function submitAdd(btn) {
+    const body = root.querySelector("#rfx-body");
+    const payload = readAddForm(body);
+    const err = body.querySelector("[data-add-err]");
+    const showErr = (m) => { if (err) { err.textContent = m; err.classList.remove("hidden"); } };
+    if (err) err.classList.add("hidden");
+    if (!payload.upwork_job_id) return showErr("Missing job id — reopen this from the job.");
+    if (!payload.title) return showErr("Title is required.");
+    btn.disabled = true;
+    btn.textContent = "Adding…";
+    const resp = await apiAddJob(payload);
+    if (resp && resp.status && !resp.error) {
+      rfxJobCache[payload.upwork_job_id] = resp.status; // strip will now show "In Reflex ✓"
+      render();
+    } else {
+      btn.disabled = false;
+      btn.textContent = "Confirm add";
+      showErr((resp && resp.error) || "Couldn't add this job.");
+    }
   }
 
   function chipsHTML(chips) {
@@ -284,18 +583,17 @@
   // never collides with other surfaces' [data-add]. Generate opens the Upwork
   // detail page in a new tab on YOUR click (navigation only — no auto-submit).
   function wireListCard(card, jobId) {
-    const strip = card.querySelector(".rfx-job-strip");
     const add = card.querySelector("[data-card-add]");
     if (add) add.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
-      const next = REFLEX_DUMMY
-        ? { connected: true, inReflex: true, ownership: "mine", verdict: "rel", quality: "good", chips: "Added · syncing", actioned: "none" }
-        : { connected: false };
-      if (jobId) rfxJobCache[jobId] = next;
-      strip.innerHTML = listCardInner(next);
-      card.classList.toggle("rfx-dim", !!(next.connected && next.verdict === "irr"));
-      wireListCard(card, jobId);
-      // TODO(backend): ADD_JOB({ jobId }).
+      const titleEl = card.querySelector(".rfx-job-title");
+      const title = titleEl ? titleEl.textContent : "";
+      // We can only add with full details from the OPEN job. If this card is the job that's
+      // open on Upwork (Job tab), review now; otherwise (a listing card) ask the rep to open
+      // it first — opening it auto-switches to the Job tab.
+      const open = readOpenJob();
+      if (open && open.id === jobId) openAddReview(jobId, title);
+      else promptOpenJobToAdd(jobId, title);
     });
     const gen = card.querySelector("[data-card-gen], [data-card-regen]");
     if (gen) gen.addEventListener("click", (e) => {
@@ -743,6 +1041,13 @@
 
   /* ---------- wire interactions ---------- */
   function wire(body) {
+    // sign-in gate: re-check auth after the rep signs in via the popup
+    const ar = body.querySelector("[data-auth-refresh]");
+    if (ar) ar.addEventListener("click", () => refreshAuth(() => {
+      if (rfxAuth && rfxAuth.token) startMirror();
+      render();
+    }));
+
     // jump between surfaces
     body.querySelectorAll("[data-go]").forEach(b =>
       b.addEventListener("click", () => { surface = b.dataset.go; render(); }));
@@ -1540,6 +1845,14 @@
       // re-read the page (read-only) when Upwork's DOM changes. Opening a NEW job
       // auto-switches from the Listing to the Job tab.
       rfxMirrorTimer = setTimeout(() => {
+        if (rfxAddOpen) return; // reviewing an Add — don't re-render over the review card
+        // Waiting for the rep to open a job they tried to add from the listing: when one
+        // opens, auto-switch to the Job tab; until then keep the "open the job" prompt up.
+        if (rfxAwaitOpenForAdd) {
+          const openNow = openJobNumericId();
+          if (openNow) { rfxAwaitOpenForAdd = null; rfxLastOpenId = openNow; surface = "job"; render(); }
+          return;
+        }
         // on the apply page, switch to Proposal once (don't re-render it after, so
         // the rep's edits/selections aren't wiped by Upwork's DOM churn).
         if (isApplyPage()) {
@@ -1562,6 +1875,19 @@
     if (rfxMirrorObserver) { rfxMirrorObserver.disconnect(); rfxMirrorObserver = null; }
     if (rfxMirrorTimer) { clearTimeout(rfxMirrorTimer); rfxMirrorTimer = null; }
   }
+
+  // Live auth: when the rep signs in/out in the toolbar popup, chrome.storage.local
+  // changes — reflect it in an already-open panel (gate ⇄ surfaces) without a reopen.
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "local" || (!changes.reflex_token && !changes.reflex_user)) return;
+      refreshAuth(() => {
+        if (!root.classList.contains("rfx-open")) return;
+        if (rfxAuth && rfxAuth.token) startMirror(); else stopMirror();
+        render();
+      });
+    });
+  } catch (e) { /* storage API unavailable — gate still works via the refresh button */ }
 
   // The apply page opens in its own browser tab — auto-open the panel straight to
   // the Proposal tab there, so the rep lands on exactly what they need.

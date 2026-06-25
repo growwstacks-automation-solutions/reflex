@@ -3,29 +3,67 @@
   --canvas:#F6F7FB; --surface:#FFFFFF; --surface-2:#EEF0F4; --border:rgba(15,17,23,.10);
   --text:#14161D; --text-2:#5A5F6E; --text-3:#9499A6;
   --green-t:#0F6E56; --green-b:#E1F5EE; --amber-t:#854F0B; --amber-b:#FAEEDA;
+  --red-t:#B42318; --red-b:#FEECEB; --red-bd:#FBD5D2;
   --sans:"Plus Jakarta Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0;font-family:var(--sans)}
-body{width:300px;background:var(--canvas);color:var(--text);padding:16px}
+/* The popup WINDOW (drawn by Chrome) stays rectangular — keep it solid white so no dark
+   background ever shows. Inside it, a bordered + rounded card gives the curved look. */
+html,body{background:var(--surface)}
+body{width:344px;color:var(--text)}
+#app{margin:8px;padding:22px 20px;background:var(--surface);
+  border:1px solid var(--border);border-radius:16px;box-shadow:0 4px 18px rgba(15,17,23,.10)}
+.screen{display:flex;flex-direction:column}
 .screen.hidden{display:none}
-.brandrow{display:flex;align-items:center;gap:9px;margin-bottom:14px}
-.mark{width:26px;height:26px;border-radius:7px;background:var(--indigo);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
-.mark.muted{background:var(--text-3)}
-.bname{font-size:15px;font-weight:600}
-.lead{font-size:13px;color:var(--text-2);margin-bottom:12px}
-.field{width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;margin-bottom:9px;background:var(--surface)}
-.field:focus{outline:2px solid var(--indigo);outline-offset:1px;border-color:transparent}
-.btn{font-size:13px;font-weight:600;padding:10px;border-radius:8px;cursor:pointer;border:none;width:100%}
-.btn.primary{background:var(--indigo);color:#fff}
+
+/* ---- header ---- */
+.brandrow{display:flex;align-items:center;gap:11px;margin-bottom:20px}
+.mark{width:34px;height:34px;border-radius:10px;background:var(--indigo);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;
+  box-shadow:0 3px 10px rgba(79,70,229,.32)}
+.mark.muted{background:var(--text-3);box-shadow:none}
+.brandtext{display:flex;flex-direction:column;line-height:1.18}
+.bname{font-size:16px;font-weight:700;letter-spacing:-.01em}
+.btag{font-size:11px;color:var(--text-3);font-weight:500}
+
+/* ---- sign-in form ---- */
+.lead{font-size:13px;color:var(--text-2);margin-bottom:18px}
+.flabel{font-size:11.5px;font-weight:600;color:var(--text-2);margin-bottom:6px}
+.field{width:100%;padding:11px 13px;border:1px solid var(--border);border-radius:10px;
+  font-size:13px;margin-bottom:13px;background:var(--surface);color:var(--text);
+  transition:border-color .12s,box-shadow .12s}
+.field::placeholder{color:var(--text-3)}
+.field:focus{outline:none;border-color:var(--indigo);box-shadow:0 0 0 3px var(--indigo-tint)}
+
+/* ---- buttons ---- */
+.btn{font-size:13.5px;font-weight:600;padding:12px;border-radius:10px;cursor:pointer;
+  border:none;width:100%;transition:background .12s,transform .04s,box-shadow .12s}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--indigo);color:#fff;box-shadow:0 3px 10px rgba(79,70,229,.30)}
 .btn.primary:hover{background:var(--indigo-press)}
-.btn.ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
+.btn.primary:disabled{opacity:.6;cursor:default;box-shadow:none}
+.btn.ghost{background:var(--surface);border:1px solid var(--border);color:var(--text)}
+.btn.ghost:hover{background:var(--surface-2)}
 .btn.full{width:100%}
-.hint{font-size:11px;color:var(--text-3);margin-top:8px;text-align:center}
-.user{font-size:13px;color:var(--text-2);margin-bottom:12px}
-.user b.ok{color:var(--green-t)}
-.callout{font-size:13px;padding:11px;border-radius:8px;line-height:1.45;margin-bottom:12px}
+
+.hint{font-size:11px;color:var(--text-3);margin-top:13px;text-align:center}
+.err{font-size:12px;color:var(--red-t);background:var(--red-b);border:1px solid var(--red-bd);
+  padding:9px 11px;border-radius:9px;margin-bottom:13px;line-height:1.4}
+.hidden{display:none}
+
+/* ---- signed-in user card ---- */
+.usercard{display:flex;align-items:center;gap:12px;padding:13px 14px;border:1px solid var(--border);
+  border-radius:12px;background:var(--canvas);margin-bottom:14px}
+.avatar{width:40px;height:40px;border-radius:50%;background:var(--indigo-tint);color:var(--indigo);
+  display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;flex-shrink:0;
+  text-transform:uppercase}
+.userinfo{display:flex;flex-direction:column;gap:3px;min-width:0}
+.uname{font-size:14.5px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--green-t)}
+.status .dot{width:7px;height:7px;border-radius:50%;background:var(--green-t);box-shadow:0 0 0 3px var(--green-b)}
+
+/* ---- callout ---- */
+.callout{display:flex;gap:10px;font-size:12.5px;padding:13px;border-radius:11px;line-height:1.5;margin-bottom:15px}
+.callout-ic{font-weight:700;flex-shrink:0;line-height:1.5}
 .ok-bg{background:var(--green-b);color:var(--green-t)}
 .warn-bg{background:var(--amber-b);color:var(--amber-t)}
-.demobar{margin-top:16px;padding-top:12px;border-top:1px dashed var(--border);font-size:11px;color:var(--text-3);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.demobar button{font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;color:var(--text-2)}
-.demobar button:hover{background:var(--surface-2)}
