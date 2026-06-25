@@ -132,10 +132,11 @@
   .rx-job-row .rx-row-action {
     margin-top: 4px !important;
   }
-  /* Hide budget/connects/posted cols on mobile (shown in meta row instead) */
+  /* Hide budget/connects/posted/created cols on mobile (shown in meta row instead) */
   .rx-col-budget,
   .rx-col-connects,
-  .rx-col-posted {
+  .rx-col-posted,
+  .rx-col-created {
     display: none !important;
   }
 

@@ -6,6 +6,69 @@ to look to see where things stand. Newest entry at the top.
 
 ---
 
+## Session log
+
+### 2026-06-25 — Server-side board pagination (filter/sort/page in Postgres) + exact timestamps
+- **Problem:** the board loaded the rep's whole dataset (864 rows) / admin's 1288 in one fetch and
+  did all tab/relevance/quality filtering + sorting in the browser — slow at 1000+ rows.
+- **Did (backend `apps/api/src/board.ts`):** rewrote `GET /board` to page/filter/sort **in Postgres**.
+  Query params: `tab` (mine/available/all), `page`, `page_size` (default 50, max 100), `relevance`
+  (all/relevant/review), repeated `quality`, `search` (title+description ILIKE), `sort`
+  (posted/created/budget/connects) + `dir`. Built with `sql.query(text, params)` (parameterized,
+  not template) so WHERE/ORDER compose dynamically while every value stays bound (`$1`…); ORDER only
+  ever emits a whitelisted column expression. Returns `{ jobs, total, page, page_size, stats }` —
+  **`stats`** is a scope-wide (role/tab, not page) KPI aggregate (on_board/relevant/review/submitted)
+  so the KPI strip stays correct without fetching all rows. Role scope unchanged (rep = own+available,
+  admin = all); irrelevant still included.
+- **Did (frontend):** `api.ts` `fetchBoard(token, query)` → `BoardPage` (jobs/total/page/pageSize/stats);
+  `JobBoard.tsx` is now **controlled** — `BoardControls` (tab/relevance/quality/sort/dir/page) lifted to
+  `App.tsx`, which refetches the page on any control change (changing a filter/sort/tab resets to page 1;
+  paging keeps the rest). Added a compact **Pager** ("from–to of total", windowed page numbers, prev/next).
+  KPI strip + table count now read server `stats`/`total`. Dropped the dead client-side filter/sort code
+  and the non-functional Category pills (taxonomy FKs are null in the data). Also switched Posted/Created
+  columns to **exact date + time** (`exactDateTime` in `adapt-job.ts`, e.g. "25 Jun 2026, 6:56 PM") per
+  request — widened both cols to 132px, allow wrap.
+- **Verified:** portal `tsc` + `vite build` green; API `tsc` + `wrangler dry-run` green. **Live Neon
+  check** of the exact dynamic queries: rep page1 = 50 rows of total 864 (stats 408/106/133 — matches the
+  UI KPIs); mine+relevant+good = 37; admin = 1288; search "hubspot" = 177. `is_mine` comes back NULL for
+  non-owned rows (NULL = $1) — the adapter treats that as falsy, so ownership resolves correctly.
+- **Next:** claim (`claim_job`) + mark-submitted endpoints. If paging feels slow under load, consider a
+  composite index on `jobs(verdict, posted_at desc)`; the existing `jobs_posted_idx` covers the default sort.
+- **Notes:** Page size 50 (PAGE_SIZE in App.tsx + DEFAULT_PAGE_SIZE in board.ts). Local "Assign to me"
+  still only mutates page state (no DB write yet). Search param is wired end-to-end on the API but the
+  filter bar has no search input yet — add one when needed.
+
+### 2026-06-25 — Board scope fix (rep own+available / admin all) + Posted vs Created columns
+- **Problem:** `GET /board` `INNER JOIN`ed `job_assignments` on the requester, so it returned
+  **only the rep's own live assignments** — Neha saw **146** of **1282** jobs, the "All"/"Available"
+  tabs filtered that same 146 (ownership was hardcoded `"mine"` in the adapter, so they were no-ops),
+  and **admins saw nothing** (Manish/Shubham have 0 live assignments).
+- **Did (backend `apps/api/src/board.ts`):** Rewrote the query to `LEFT JOIN` the single live
+  assignment (`released_at IS NULL`) + `users` for the owner name, and scope by role:
+  **rep → `a.user_id = me OR a.user_id IS NULL`** (own + unowned/available, *not* other reps'
+  in-progress jobs); **admin → no filter** (all jobs). Irrelevant jobs are now **included** (the
+  "All" tab shows them dimmed). Added `created_at` to the SELECT and per-row `is_mine` /
+  `is_available` / `owner_name`. Still fully parameterized (user id bound).
+- **Did (frontend):** `api.ts` typed the new fields; `adapt-job.ts` computes real `ownership`
+  (`mine`/`available`/`other`) + `owner` (avatar for admin viewing another rep's job) and adds
+  `createdAgo`/`createdAt`; `types.ts` gained `createdAgo` + raw `postedAt`/`createdAt` (for sorting);
+  `JobBoard.tsx` added a **Created** column (sortable) beside **Posted** ("Posted" = Upwork
+  `posted_at`, "Created" = our DB `created_at`), shared `GRID` template across header/row/skeleton,
+  honest timestamp-based sort for both; `mobile.css` hides the new col on mobile; mock-data given
+  `createdAgo`.
+- **Verified:** portal `tsc` + `vite build` green; API `tsc` + `wrangler deploy --dry-run` green.
+  **Read-only Neon check** confirms the fix: total **1282** jobs (730 relevant / 402 irrelevant /
+  66 review / 82 null / 2 legacy `needs_review`); live assignments — Sachin 245, Sarthak 179,
+  Neha 146, both admins 0; **712 available**. New queries return **Neha 858 (146 mine + 712
+  available)** and **admin 1282** — matches expectations.
+- **Next:** claim (`claim_job`) + mark-submitted endpoints (the "Assign to me" button still only
+  mutates local state). Consider backfilling the 82 NULL + 2 `needs_review` verdicts to the enum.
+- **Notes:** No DB/schema change. Scope decided with Manish: reps see own+available only (not other
+  reps' jobs); admins see everything; irrelevant shown (dimmed) on "All". `user.role` already rides
+  the JWT, so no auth change needed.
+
+---
+
 ## Handover — start here (2026-06-24)
 
 Picking this up fresh? Read `CLAUDE.md` → this file → `docs/RUNBOOK.md` ("First-time setup").

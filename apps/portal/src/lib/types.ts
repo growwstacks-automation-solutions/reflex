@@ -33,7 +33,10 @@ export interface Job {
   releasedFrom?: string;
   budget: string;
   connects: number;
-  postedAgo: string;
+  postedAgo: string; // relative time since the job was posted on Upwork
+  createdAgo: string; // relative time since the row was created in our DB
+  postedAt?: string | null; // raw ISO — for sorting (display uses postedAgo)
+  createdAt?: string | null; // raw ISO — for sorting (display uses createdAgo)
   cat: string;
   desc: string;
   url?: string;

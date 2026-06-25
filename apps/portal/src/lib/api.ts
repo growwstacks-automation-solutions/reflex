@@ -31,9 +31,14 @@ export interface ApiBoardJob {
   client_country: string | null;
   client_country_code: string | null;
   connects: number | string | null;
-  posted_at: string | null;
+  posted_at: string | null; // when the job was posted on Upwork
+  created_at: string | null; // when the row was created in our DB
   reason: string | null;
   proposal_status: string | null;
+  // ownership relative to the requesting user (computed server-side from the live assignment)
+  is_mine: boolean | null;
+  is_available: boolean | null;
+  owner_name: string | null;
   // detail-panel fields (Option A) — used by the slide-in JobDetailPeek, not the list rows
   description: string | null;
   url: string | null;
@@ -64,12 +69,65 @@ export async function login(email: string, password: string): Promise<LoginResul
   return data as LoginResult;
 }
 
-export async function fetchBoard(token: string): Promise<ApiBoardJob[]> {
-  const res = await fetch(`${BASE}/board`, {
+/** Server-side board query params. All filtering/sorting/paging now runs in Postgres. */
+export interface BoardQuery {
+  tab?: "mine" | "available" | "all";
+  page?: number;
+  pageSize?: number;
+  relevance?: "all" | "relevant" | "review";
+  quality?: string[]; // good | medium | watch | poor
+  search?: string;
+  sort?: "posted" | "created" | "budget" | "connects";
+  dir?: "asc" | "desc";
+}
+
+/** Board KPI counts over the role/tab scope (not the current filters/page). */
+export interface BoardStats {
+  on_board: number;
+  relevant: number;
+  review: number;
+  submitted: number;
+}
+
+/** A page of board jobs + the total matching count (for the pager) + scope-wide KPIs. */
+export interface BoardPage {
+  jobs: ApiBoardJob[];
+  total: number;
+  page: number;
+  pageSize: number;
+  stats: BoardStats;
+}
+
+export async function fetchBoard(token: string, query: BoardQuery = {}): Promise<BoardPage> {
+  const p = new URLSearchParams();
+  if (query.tab) p.set("tab", query.tab);
+  if (query.page) p.set("page", String(query.page));
+  if (query.pageSize) p.set("page_size", String(query.pageSize));
+  if (query.relevance) p.set("relevance", query.relevance);
+  if (query.search) p.set("search", query.search);
+  if (query.sort) p.set("sort", query.sort);
+  if (query.dir) p.set("dir", query.dir);
+  for (const qv of query.quality || []) p.append("quality", qv);
+
+  const qs = p.toString();
+  const res = await fetch(`${BASE}/board${qs ? `?${qs}` : ""}`, {
     headers: { authorization: `Bearer ${token}` },
   });
   if (res.status === 401) throw new UnauthorizedError("Session expired — please sign in again.");
-  const data = (await res.json().catch(() => ({}))) as { jobs?: ApiBoardJob[]; error?: string };
+  const data = (await res.json().catch(() => ({}))) as {
+    jobs?: ApiBoardJob[];
+    total?: number;
+    page?: number;
+    page_size?: number;
+    stats?: BoardStats;
+    error?: string;
+  };
   if (!res.ok) throw new Error(data.error || `Couldn't load the board (${res.status})`);
-  return data.jobs || [];
+  return {
+    jobs: data.jobs || [],
+    total: data.total ?? (data.jobs?.length || 0),
+    page: data.page ?? query.page ?? 1,
+    pageSize: data.page_size ?? query.pageSize ?? 50,
+    stats: data.stats ?? { on_board: 0, relevant: 0, review: 0, submitted: 0 },
+  };
 }

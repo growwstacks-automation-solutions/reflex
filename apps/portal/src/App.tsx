@@ -2,8 +2,8 @@ import { useEffect, useReducer, useState } from "react";
 import type { ReactNode } from "react";
 import { Sidebar, PageHeader, NAV } from "@/components/Shell";
 import type { Screen } from "@/components/Shell";
-import { JobBoard, JobRow } from "@/components/JobBoard";
-import type { TabId } from "@/components/JobBoard";
+import { JobBoard, JobRow, DEFAULT_CONTROLS } from "@/components/JobBoard";
+import type { BoardControls, BoardStats } from "@/components/JobBoard";
 import { JobDetailPeek } from "@/components/JobDetailPeek";
 import { ProposalWorkspace } from "@/components/ProposalWorkspace";
 import type { WorkspaceStatus } from "@/components/ProposalWorkspace";
@@ -55,10 +55,13 @@ export default function App() {
   const auth = useAuth();
   const [dark, setDark] = useState(false);
   const [screen, setScreen] = useState<Screen>("board");
-  const [tab, setTab] = useState<TabId>("all");
+  const [controls, setControls] = useState<BoardControls>(DEFAULT_CONTROLS);
   const [peekJob, setPeekJob] = useState<Job | null>(null);
   const [workspace, setWorkspace] = useState<{ job: Job; status: WorkspaceStatus; regen: boolean } | null>(null);
   const [boardJobs, setBoardJobs] = useState<Job[]>([]);
+  const [boardStats, setBoardStats] = useState<BoardStats>({ on_board: 0, relevant: 0, review: 0, submitted: 0 });
+  const [boardTotal, setBoardTotal] = useState(0);
+  const PAGE_SIZE = 50;
   const [boardLoading, setBoardLoading] = useState(true);
   const [boardError, setBoardError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -69,16 +72,27 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
   }, [dark]);
 
-  // Load the rep's real board from the API once authenticated (and on retry).
+  // Load the current page of the board whenever auth, the query controls, or a retry change.
+  // Filtering/sorting/paging all run server-side, so each control change is a fresh fetch.
   useEffect(() => {
     if (!auth.token) return;
     let cancelled = false;
     setBoardLoading(true);
     setBoardError(null);
-    fetchBoard(auth.token)
-      .then((rows) => {
+    fetchBoard(auth.token, {
+      tab: controls.tab,
+      page: controls.page,
+      pageSize: PAGE_SIZE,
+      relevance: controls.relevance,
+      quality: controls.quality,
+      sort: controls.sort,
+      dir: controls.dir,
+    })
+      .then((res) => {
         if (cancelled) return;
-        setBoardJobs(rows.map(adaptJob));
+        setBoardJobs(res.jobs.map(adaptJob));
+        setBoardTotal(res.total);
+        setBoardStats(res.stats);
         setBoardLoading(false);
       })
       .catch((err) => {
@@ -93,7 +107,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [auth.token, reloadKey]);
+  }, [auth.token, reloadKey, controls]);
 
   const openWorkspace = (job: Job, status?: WorkspaceStatus, regen?: boolean) => {
     setPeekJob(null);
@@ -147,8 +161,11 @@ export default function App() {
       <main className="rx-app-main" style={{ flex: 1, minWidth: 0, height: "100%", overflow: "hidden" }}>
         {screen === "board" && (
           <JobBoard
-            tab={tab}
-            setTab={setTab}
+            controls={controls}
+            setControls={setControls}
+            stats={boardStats}
+            total={boardTotal}
+            pageSize={PAGE_SIZE}
             loading={boardLoading}
             jobs={boardJobs}
             error={boardError}

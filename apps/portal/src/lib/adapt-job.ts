@@ -29,18 +29,19 @@ function buildBudget(j: ApiBoardJob): string {
   return j.budget_text || "—";
 }
 
-function relativeTime(iso: string | null): string {
+/** Exact date + time, e.g. "25 Jun 2026, 6:56 PM". Reps want the real timestamp, not "2w ago". */
+function exactDateTime(iso: string | null): string {
   if (!iso) return "—";
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return "—";
-  const min = Math.max(0, Math.floor((Date.now() - t) / 60000));
-  if (min < 1) return "just now";
-  if (min < 60) return `${min}m ago`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return `${Math.floor(d / 7)}w ago`;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 const ACTION_STATE: Record<string, Job["actionState"]> = {
@@ -61,6 +62,15 @@ export function adaptJob(j: ApiBoardJob): Job {
   const payment =
     j.client_payment_verified == null ? "—" : j.client_payment_verified ? "Verified" : "Unverified";
 
+  // Ownership is computed server-side relative to the requester:
+  //   is_mine → "mine"; is_available (no live owner) → "available"; else another rep owns it.
+  const ownership: Job["ownership"] = j.is_mine ? "mine" : j.is_available ? "available" : "other";
+  // For an admin viewing another rep's job, surface who owns it.
+  const owner =
+    ownership === "other" && j.owner_name
+      ? { name: j.owner_name, first: j.owner_name.split(" ")[0], bg: "var(--surface-2)", fg: "var(--text-secondary)" }
+      : undefined;
+
   return {
     id: j.upwork_job_id,
     title: j.title,
@@ -68,11 +78,15 @@ export function adaptJob(j: ApiBoardJob): Job {
     quality,
     reason: j.reason || "",
     chips: [], // taxonomy FKs are null in the migrated data / not returned by /board
-    ownership: "mine", // every row on /board is one this rep was assigned
+    ownership,
+    owner,
     actionState: (j.proposal_status && ACTION_STATE[j.proposal_status]) || "not-actioned",
     budget: buildBudget(j),
     connects,
-    postedAgo: relativeTime(j.posted_at),
+    postedAgo: exactDateTime(j.posted_at),
+    createdAgo: exactDateTime(j.created_at),
+    postedAt: j.posted_at,
+    createdAt: j.created_at,
     cat: "",
     desc: j.description || "",
     url: j.url || undefined,

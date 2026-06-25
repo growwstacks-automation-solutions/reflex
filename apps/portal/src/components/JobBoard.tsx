@@ -10,16 +10,20 @@ import { BellButton } from "@/components/bell";
 import type { Job, ActionLink } from "@/lib/types";
 
 export type TabId = "mine" | "available" | "all";
-type SortKey = "posted" | "budget" | "connects";
+type SortKey = "posted" | "created" | "budget" | "connects";
 
 /* ── Fixed column widths — every row and the header share these exactly ── */
 const COL = {
   status:  "164px",   /* relevance + quality badges */
   budget:  "110px",   /* budget amount */
   connects: "88px",   /* connects count */
-  posted:   "80px",   /* time ago */
+  posted:   "132px",  /* posted on Upwork (exact date + time) */
+  created:  "132px",  /* created in our DB (exact date + time) */
   action:  "148px",   /* CTA button */
 } as const;
+
+/* Shared template so the header, every row, and the skeleton stay column-aligned. */
+const GRID = `${COL.status} 1fr ${COL.budget} ${COL.connects} ${COL.posted} ${COL.created} ${COL.action}`;
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "mine", label: "Assigned to me" },
@@ -146,7 +150,7 @@ function TableHeader({
   return (
     <div className="rx-table-header" style={{
       display: "grid",
-      gridTemplateColumns: `${COL.status} 1fr ${COL.budget} ${COL.connects} ${COL.posted} ${COL.action}`,
+      gridTemplateColumns: GRID,
       height: 38,
       background: "var(--surface-2)",
       borderBottom: "2px solid var(--border)",
@@ -164,6 +168,7 @@ function TableHeader({
       <ColHeader label="Budget" sortKey="budget" current={sort} {...shared} align="right" />
       <ColHeader label="Connects" sortKey="connects" current={sort} {...shared} align="right" />
       <ColHeader label="Posted" sortKey="posted" current={sort} {...shared} align="right" />
+      <ColHeader label="Created" sortKey="created" current={sort} {...shared} align="right" />
       <div style={{ padding: "0 12px", display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
         <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>Action</span>
       </div>
@@ -251,7 +256,7 @@ export function JobRow({
       onMouseLeave={() => setHover(false)}
       style={{
         display: "grid",
-        gridTemplateColumns: `${COL.status} 1fr ${COL.budget} ${COL.connects} ${COL.posted} ${COL.action}`,
+        gridTemplateColumns: GRID,
         borderBottom: "1px solid var(--border)",
         cursor: "pointer",
         background: hover ? "var(--indigo-50)" : "var(--surface)",
@@ -346,15 +351,23 @@ export function JobRow({
         </span>
       </div>
 
-      {/* ── Col 5: Posted ── */}
+      {/* ── Col 5: Posted (on Upwork) ── */}
       <div className="rx-col-posted" style={{ ...cellBase, justifyContent: "flex-end" }}>
         <span style={{
-          fontSize: 12, color: "var(--text-tertiary)", whiteSpace: "nowrap", textAlign: "right",
-          fontFamily: "var(--font-mono)",
+          fontSize: 11.5, color: "var(--text-tertiary)", textAlign: "right",
+          fontFamily: "var(--font-mono)", lineHeight: 1.35,
         }}>{job.postedAgo}</span>
       </div>
 
-      {/* ── Col 6: Action ── */}
+      {/* ── Col 6: Created (in our DB) ── */}
+      <div className="rx-col-created" style={{ ...cellBase, justifyContent: "flex-end" }}>
+        <span style={{
+          fontSize: 11.5, color: "var(--text-tertiary)", textAlign: "right",
+          fontFamily: "var(--font-mono)", lineHeight: 1.35,
+        }}>{job.createdAgo}</span>
+      </div>
+
+      {/* ── Col 7: Action ── */}
       <div className="rx-row-action" style={{ ...cellBase, borderRight: "none", justifyContent: "flex-end" }}>
         <RowAction
           job={job}
@@ -426,7 +439,7 @@ function SkeletonRow(): JSX.Element {
   return (
     <div className="rx-skeleton-row" style={{
       display: "grid",
-      gridTemplateColumns: `${COL.status} 1fr ${COL.budget} ${COL.connects} ${COL.posted} ${COL.action}`,
+      gridTemplateColumns: GRID,
       borderBottom: "1px solid var(--border)", minHeight: 72,
     }}>
       <div style={{ padding: "14px 12px", display: "flex", flexDirection: "column", gap: 6, justifyContent: "center" }}>
@@ -437,6 +450,7 @@ function SkeletonRow(): JSX.Element {
       </div>
       <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>{bar(60)}</div>
       <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>{bar(32)}</div>
+      <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>{bar(44)}</div>
       <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>{bar(44)}</div>
       <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>{bar(90, 28)}</div>
     </div>
@@ -476,14 +490,15 @@ function ErrorState({ message, onRetry }: { message: string; onRetry?: () => voi
   );
 }
 
-/* ── KPI strip ── */
-function KpiStrip({ jobs }: { jobs: Job[] }): JSX.Element {
-  const count = (pred: (j: Job) => boolean) => jobs.filter(pred).length;
+/* ── KPI strip ── (counts come from the server, scoped to the role/tab, not the page) */
+export interface BoardStats { on_board: number; relevant: number; review: number; submitted: number }
+
+function KpiStrip({ stats }: { stats: BoardStats }): JSX.Element {
   const kpis = [
-    { label: "On board",     value: jobs.length,                                              color: "var(--text-primary)",   fill: "var(--surface)" },
-    { label: "Relevant",     value: count(j => j.relevance === "relevant"),                   color: "var(--relevant-text)",  fill: "var(--relevant-fill)" },
-    { label: "Needs review", value: count(j => j.relevance === "review"),                     color: "var(--review-text)",    fill: "var(--review-fill)" },
-    { label: "Submitted",    value: count(j => j.actionState === "submitted"),                color: "var(--info-text)",      fill: "var(--info-fill)" },
+    { label: "On board",     value: stats.on_board,  color: "var(--text-primary)",   fill: "var(--surface)" },
+    { label: "Relevant",     value: stats.relevant,  color: "var(--relevant-text)",  fill: "var(--relevant-fill)" },
+    { label: "Needs review", value: stats.review,    color: "var(--review-text)",    fill: "var(--review-fill)" },
+    { label: "Submitted",    value: stats.submitted, color: "var(--info-text)",      fill: "var(--info-fill)" },
   ];
   return (
     <div className="rx-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
@@ -501,19 +516,113 @@ function KpiStrip({ jobs }: { jobs: Job[] }): JSX.Element {
   );
 }
 
-/* ── Budget string → number for sorting ── */
-function budgetNum(b: string): number {
-  const m = b.match(/[\d.]+/);
-  return m ? parseFloat(m[0]) : 0;
+/* ── Board query state (lifted to App; filtering/sorting/paging run server-side) ── */
+export interface BoardControls {
+  tab: TabId;
+  relevance: "all" | "relevant" | "review";
+  quality: string[];
+  sort: SortKey;
+  dir: "asc" | "desc";
+  page: number;
 }
 
-/* ── Main JobBoard component ── */
+export const DEFAULT_CONTROLS: BoardControls = {
+  tab: "all",
+  relevance: "all",
+  quality: [],
+  sort: "posted",
+  dir: "desc",
+  page: 1,
+};
+
+/* ── Pager ── */
+function Pager({
+  page, pageSize, total, onPage,
+}: {
+  page: number; pageSize: number; total: number; onPage: (p: number) => void;
+}): JSX.Element | null {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  if (total === 0) return null;
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(total, page * pageSize);
+
+  const btn = (label: ReactNode, target: number, disabled: boolean, key: string) => (
+    <button
+      key={key}
+      onClick={() => !disabled && onPage(target)}
+      disabled={disabled}
+      style={{
+        minWidth: 30, height: 30, padding: "0 9px", borderRadius: "var(--radius-button)",
+        border: "1px solid var(--border)",
+        background: disabled ? "var(--surface-2)" : "var(--surface)",
+        color: disabled ? "var(--text-tertiary)" : "var(--text-secondary)",
+        cursor: disabled ? "default" : "pointer", fontSize: 12.5, fontWeight: 600,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+      }}
+    >{label}</button>
+  );
+
+  // Compact window of page numbers around the current page.
+  const windowed: number[] = [];
+  const lo = Math.max(1, page - 2);
+  const hi = Math.min(pages, page + 2);
+  for (let i = lo; i <= hi; i++) windowed.push(i);
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      gap: 12, flexWrap: "wrap", marginTop: 14,
+    }}>
+      <span style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>
+        <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-secondary)", fontWeight: 600 }}>{from}–{to}</span>
+        {" of "}
+        <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-secondary)", fontWeight: 600 }}>{total}</span>
+      </span>
+      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+        {btn("‹ Prev", page - 1, page <= 1, "prev")}
+        {lo > 1 && (
+          <>
+            {btn("1", 1, false, "first")}
+            {lo > 2 && <span style={{ color: "var(--text-tertiary)", padding: "0 2px" }}>…</span>}
+          </>
+        )}
+        {windowed.map(p => (
+          <button
+            key={`p${p}`}
+            onClick={() => onPage(p)}
+            style={{
+              minWidth: 30, height: 30, padding: "0 9px", borderRadius: "var(--radius-button)",
+              border: p === page ? "1px solid var(--indigo-200)" : "1px solid var(--border)",
+              background: p === page ? "var(--accent-tint)" : "var(--surface)",
+              color: p === page ? "var(--accent-on-tint)" : "var(--text-secondary)",
+              cursor: "pointer", fontSize: 12.5, fontWeight: p === page ? 700 : 600,
+              fontFamily: "var(--font-mono)",
+            }}
+          >{p}</button>
+        ))}
+        {hi < pages && (
+          <>
+            {hi < pages - 1 && <span style={{ color: "var(--text-tertiary)", padding: "0 2px" }}>…</span>}
+            {btn(String(pages), pages, false, "last")}
+          </>
+        )}
+        {btn("Next ›", page + 1, page >= pages, "next")}
+      </div>
+    </div>
+  );
+}
+
+/* ── Main JobBoard component (controlled: query state lives in App) ── */
 export function JobBoard({
-  tab, setTab, onNavigate, onOpen, onGenerate, onAssign, onRegenerate,
+  controls, setControls, stats, total, pageSize,
+  onNavigate, onOpen, onGenerate, onAssign, onRegenerate,
   loading, jobs, error, onRetry,
 }: {
-  tab: TabId;
-  setTab: (id: TabId) => void;
+  controls: BoardControls;
+  setControls: (next: BoardControls) => void;
+  stats: BoardStats;
+  total: number;
+  pageSize: number;
   onNavigate: (link: ActionLink) => void;
   onOpen: (job: Job) => void;
   onGenerate: (job: Job) => void;
@@ -524,36 +633,19 @@ export function JobBoard({
   error?: string | null;
   onRetry?: () => void;
 }): JSX.Element {
-  const [rel,     setRel]     = useState<"all" | "relevant" | "review">("all");
-  const [quality, setQuality] = useState<string[]>([]);
-  const [cats,    setCats]    = useState<string[]>([]);
-  const [sort,    setSort]    = useState<SortKey>("posted");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  // Any change to a filter/sort/tab resets to page 1; page changes keep the rest.
+  const patch = (p: Partial<BoardControls>, resetPage = true) =>
+    setControls({ ...controls, ...p, ...(resetPage ? { page: 1 } : {}) });
+
+  const setTab = (tab: TabId) => patch({ tab });
+  const setRel = (relevance: BoardControls["relevance"]) => patch({ relevance });
+  const toggleQuality = (v: string) =>
+    patch({ quality: controls.quality.includes(v) ? controls.quality.filter(x => x !== v) : [...controls.quality, v] });
 
   const handleSort = (k: SortKey) => {
-    if (k === sort) { setSortDir(d => d === "desc" ? "asc" : "desc"); }
-    else            { setSort(k); setSortDir("desc"); }
+    if (k === controls.sort) patch({ dir: controls.dir === "desc" ? "asc" : "desc" });
+    else                     patch({ sort: k, dir: "desc" });
   };
-
-  const toggle = (arr: string[], set: (v: string[]) => void, v: string) =>
-    set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
-
-  const filtered = jobs.filter(j => {
-    if (tab === "mine"      && j.ownership !== "mine")      return false;
-    if (tab === "available" && j.ownership !== "available") return false;
-    if (rel === "relevant"  && j.relevance !== "relevant")  return false;
-    if (rel === "review"    && j.relevance !== "review")    return false;
-    if (quality.length && !quality.includes(j.quality))    return false;
-    if (cats.length    && !cats.includes(j.cat))           return false;
-    return true;
-  });
-
-  const visible = [...filtered].sort((a, b) => {
-    const flip = sortDir === "asc" ? -1 : 1;
-    if (sort === "budget")   return flip * (budgetNum(b.budget) - budgetNum(a.budget));
-    if (sort === "connects") return flip * (b.connects - a.connects);
-    return sortDir === "asc" ? 1 : 0; // posted: API returns desc; flip for asc
-  });
 
   const QUAL_PILLS = [
     { id: "good",   label: "Good",   dot: "var(--status-good)" },
@@ -561,11 +653,10 @@ export function JobBoard({
     { id: "watch",  label: "Watch",  dot: "var(--status-info)" },
     { id: "poor",   label: "Poor",   dot: "var(--status-bad)"  },
   ];
-  const CATS = ["GHL", "AI agents", "Voice", "Cloud"];
 
   const headerRight = (
     <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-      <Segmented value={tab} onChange={setTab} options={TABS} />
+      <Segmented value={controls.tab} onChange={setTab} options={TABS} />
       <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "var(--text-tertiary)" }}>
         <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--live)", display: "inline-block" }} />
         <span style={{ fontFamily: "var(--font-mono)" }}>live</span>
@@ -579,7 +670,7 @@ export function JobBoard({
       <PageHeader title="Job board" subtitle="Read the job, decide if it's worth it, act in one click." right={headerRight} />
 
       <div className="rx-page-content" style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
-        <KpiStrip jobs={jobs} />
+        <KpiStrip stats={stats} />
 
         {/* ── Filter bar ── */}
         <div className="rx-filter-bar" style={{
@@ -589,22 +680,15 @@ export function JobBoard({
           borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-sm)",
         }}>
           <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-tertiary)", letterSpacing: "0.07em", textTransform: "uppercase", marginRight: 2, whiteSpace: "nowrap" }}>Relevance</span>
-          <FilterPill active={rel === "all"}      onClick={() => setRel("all")}>All</FilterPill>
-          <FilterPill active={rel === "relevant"} onClick={() => setRel("relevant")}>Relevant</FilterPill>
-          <FilterPill active={rel === "review"}   onClick={() => setRel("review")}>Needs review</FilterPill>
+          <FilterPill active={controls.relevance === "all"}      onClick={() => setRel("all")}>All</FilterPill>
+          <FilterPill active={controls.relevance === "relevant"} onClick={() => setRel("relevant")}>Relevant</FilterPill>
+          <FilterPill active={controls.relevance === "review"}   onClick={() => setRel("review")}>Needs review</FilterPill>
 
           <VDivider />
 
           <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-tertiary)", letterSpacing: "0.07em", textTransform: "uppercase", marginRight: 2, whiteSpace: "nowrap" }}>Quality</span>
           {QUAL_PILLS.map(q => (
-            <FilterPill key={q.id} active={quality.includes(q.id)} dot={q.dot} onClick={() => toggle(quality, setQuality, q.id)}>{q.label}</FilterPill>
-          ))}
-
-          <VDivider />
-
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-tertiary)", letterSpacing: "0.07em", textTransform: "uppercase", marginRight: 2, whiteSpace: "nowrap" }}>Category</span>
-          {CATS.map(c => (
-            <FilterPill key={c} active={cats.includes(c)} onClick={() => toggle(cats, setCats, c)}>{c}</FilterPill>
+            <FilterPill key={q.id} active={controls.quality.includes(q.id)} dot={q.dot} onClick={() => toggleQuality(q.id)}>{q.label}</FilterPill>
           ))}
 
           <div style={{ flex: 1 }} />
@@ -629,12 +713,12 @@ export function JobBoard({
             </>
           ) : error ? (
             <ErrorState message={error} onRetry={onRetry} />
-          ) : visible.length === 0 ? (
-            <EmptyState boardEmpty={jobs.length === 0} />
+          ) : jobs.length === 0 ? (
+            <EmptyState boardEmpty={total === 0} />
           ) : (
             <>
-              <TableHeader sort={sort} dir={sortDir} onSort={handleSort} count={visible.length} />
-              {visible.map(job => (
+              <TableHeader sort={controls.sort} dir={controls.dir} onSort={handleSort} count={total} />
+              {jobs.map(job => (
                 <JobRow
                   key={job.id} job={job}
                   onOpen={onOpen} onGenerate={onGenerate}
@@ -644,6 +728,11 @@ export function JobBoard({
             </>
           )}
         </div>
+
+        {/* ── Pager ── */}
+        {!loading && !error && (
+          <Pager page={controls.page} pageSize={pageSize} total={total} onPage={(p) => patch({ page: p }, false)} />
+        )}
       </div>
     </div>
   );
