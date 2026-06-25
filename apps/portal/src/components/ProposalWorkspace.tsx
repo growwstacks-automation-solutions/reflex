@@ -7,6 +7,49 @@ import { RXIcons } from "@/components/icons";
 import { RX_DATA } from "@/lib/mock-data";
 import type { Job } from "@/lib/types";
 
+function assembleProposal({
+  cover,
+  screening,
+  answers,
+  pickedImages,
+  insertedLooms,
+}: {
+  cover: string;
+  screening: { q: string }[];
+  answers: string[];
+  pickedImages: string[];
+  insertedLooms: string[];
+}): string {
+  const { images, looms } = RX_DATA.assets;
+  const parts: string[] = [];
+  parts.push("COVER LETTER\n" + "─".repeat(40) + "\n" + cover);
+  if (screening.length > 0) {
+    parts.push("SCREENING QUESTIONS\n" + "─".repeat(40));
+    screening.forEach((s, i) => {
+      parts.push(`Q: ${s.q}\nA: ${answers[i] ?? ""}`);
+    });
+  }
+  const pickedLabels = images.filter(a => pickedImages.includes(a.id)).map(a => a.label);
+  if (pickedLabels.length > 0) {
+    parts.push("WORK SAMPLES\n" + "─".repeat(40) + "\n" + pickedLabels.join(", "));
+  }
+  if (insertedLooms.length > 0) {
+    const loomLines = looms.filter(l => insertedLooms.includes(l.id)).map(l => `${l.title} — ${l.url}`);
+    parts.push("LOOM WALKTHROUGHS\n" + "─".repeat(40) + "\n" + loomLines.join("\n"));
+  }
+  return parts.join("\n\n");
+}
+
+function downloadTxt(text: string, filename: string) {
+  const blob = new Blob([text], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export type WorkspaceStatus = "idle" | "generating" | "done";
 
 function ConfirmDialog({
@@ -230,18 +273,26 @@ function GeneratedBlock({ label, cost, value, onChange, question }: { label?: st
   );
 }
 
-function WorkSamples() {
+function WorkSamples({
+  pickedImages,
+  toggleImage,
+  insertedLooms,
+  toggleLoom,
+}: {
+  pickedImages: string[];
+  toggleImage: (id: string) => void;
+  insertedLooms: string[];
+  toggleLoom: (id: string) => void;
+}) {
   const { images, looms } = RX_DATA.assets;
-  const [picked, setPicked] = useState<string[]>(["a1", "a2"]);
-  const toggle = (id: string) => setPicked(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
   return (
     <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--border)" }}>
       <Eyebrow style={{ marginBottom: 10 }}>Work samples</Eyebrow>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
         {images.slice(0, 4).map(a => {
-          const on = picked.includes(a.id);
+          const on = pickedImages.includes(a.id);
           return (
-            <button key={a.id} onClick={() => toggle(a.id)} style={{
+            <button key={a.id} onClick={() => toggleImage(a.id)} style={{
               display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 10px 6px 7px",
               borderRadius: "var(--radius-button)", cursor: "pointer",
               border: on ? "1px solid var(--terracotta-100)" : "1px solid var(--border)",
@@ -257,16 +308,33 @@ function WorkSamples() {
       </div>
       <Eyebrow style={{ marginBottom: 10 }}>Loom walkthrough</Eyebrow>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {looms.map(l => (
-          <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "9px 11px", border: "1px solid var(--border)", borderRadius: "var(--radius-button)", background: "var(--surface)" }}>
-            <span style={{ width: 30, height: 30, borderRadius: 6, background: "var(--surface-2)", color: "var(--text-secondary)", display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}><RXIcons.play size={13} /></span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.title}</div>
-              <Mono style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{l.url} · {l.len}</Mono>
+        {looms.map(l => {
+          const inserted = insertedLooms.includes(l.id);
+          return (
+            <div key={l.id} style={{
+              display: "flex", alignItems: "center", gap: 11, padding: "9px 11px",
+              border: inserted ? "1px solid var(--terracotta-100)" : "1px solid var(--border)",
+              borderRadius: "var(--radius-button)",
+              background: inserted ? "var(--accent-tint)" : "var(--surface)",
+            }}>
+              <span style={{ width: 30, height: 30, borderRadius: 6, background: "var(--surface-2)", color: inserted ? "var(--accent)" : "var(--text-secondary)", display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}><RXIcons.play size={13} /></span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.title}</div>
+                <Mono style={{ color: "var(--text-tertiary)", fontSize: 11.5 }}>{l.url} · {l.len}</Mono>
+              </div>
+              <button onClick={() => toggleLoom(l.id)} style={{
+                display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px",
+                borderRadius: "var(--radius-button)", cursor: "pointer", fontSize: 12.5, fontWeight: 500,
+                border: inserted ? "1px solid var(--terracotta-100)" : "1px solid var(--border)",
+                background: inserted ? "var(--accent)" : "var(--surface)",
+                color: inserted ? "#fff" : "var(--text-secondary)",
+              }}>
+                {inserted ? <RXIcons.check size={13} /> : <RXIcons.plus size={13} />}
+                {inserted ? "Inserted" : "Insert"}
+              </button>
             </div>
-            <Button size="sm" variant="ghost" icon={<RXIcons.plus size={14} />}>Insert</Button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -276,6 +344,31 @@ function ProposalCard({ job, status, setStatus, onAskRegenerate }: { job: Job; s
   const seed = RX_DATA.proposal;
   const [cover, setCover] = useState(seed.cover);
   const [answers, setAnswers] = useState(seed.screening.map((s) => s.a));
+  const [pickedImages, setPickedImages] = useState<string[]>(["a1", "a2"]);
+  const [insertedLooms, setInsertedLooms] = useState<string[]>([]);
+
+  const toggleImage = (id: string) => setPickedImages(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const toggleLoom = (id: string) => setInsertedLooms(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+
+  const getFullText = () => assembleProposal({ cover, screening: seed.screening, answers, pickedImages, insertedLooms });
+
+  const handleDownloadTxt = () => {
+    const safe = (job.title || "proposal").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+    downloadTxt(getFullText(), `${safe}.txt`);
+  };
+
+  const handlePrint = () => {
+    const html = getFullText()
+      .split("\n")
+      .map(line => `<p style="margin:0 0 4px;white-space:pre-wrap;">${line.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</p>`)
+      .join("");
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(`<!doctype html><html><head><title>${job.title || "Proposal"}</title><style>body{font:13px/1.6 system-ui,sans-serif;padding:32px;max-width:720px;margin:auto}p{margin:0 0 4px}</style></head><body>${html}</body></html>`);
+    win.document.close();
+    win.focus();
+    win.print();
+  };
 
   const header = (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 18px", borderBottom: "1px solid var(--border)" }}>
@@ -296,9 +389,33 @@ function ProposalCard({ job, status, setStatus, onAskRegenerate }: { job: Job; s
     </div>
   );
 
+  const exportBar = status === "done" && (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 18px", borderBottom: "1px solid var(--border)", background: "var(--surface)" }}>
+      <span style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500, flex: 1 }}>Full proposal</span>
+      <CopyButton getText={getFullText} label="Copy all" size="sm" />
+      <button onClick={handleDownloadTxt} title="Download as .txt" style={{
+        display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px",
+        borderRadius: "var(--radius-button)", border: "1px solid var(--border)",
+        background: "var(--surface)", color: "var(--text-secondary)", cursor: "pointer",
+        fontSize: 12.5, fontWeight: 500,
+      }}>
+        <RXIcons.upload size={13} style={{ transform: "rotate(180deg)" }} /> .txt
+      </button>
+      <button onClick={handlePrint} title="Print / Save as PDF" style={{
+        display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px",
+        borderRadius: "var(--radius-button)", border: "1px solid var(--border)",
+        background: "var(--surface)", color: "var(--text-secondary)", cursor: "pointer",
+        fontSize: 12.5, fontWeight: 500,
+      }}>
+        <RXIcons.proposal size={13} /> PDF
+      </button>
+    </div>
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: 0, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-sm)" }}>
       {header}
+      {exportBar}
       {status === "idle" && <GenerateEmpty onGenerate={() => setStatus("generating")} />}
       {status === "generating" && <GeneratingState />}
       {status === "done" && (
@@ -317,7 +434,12 @@ function ProposalCard({ job, status, setStatus, onAskRegenerate }: { job: Job; s
               onChange={(v) => setAnswers(a => a.map((x, j) => j === i ? v : x))} />
           ))}
 
-          <WorkSamples />
+          <WorkSamples
+            pickedImages={pickedImages}
+            toggleImage={toggleImage}
+            insertedLooms={insertedLooms}
+            toggleLoom={toggleLoom}
+          />
         </div>
       )}
     </div>
