@@ -44,6 +44,46 @@
   padding: 0;
 }
 
+/* ---------- sign-in gate (shown until the rep signs in via the toolbar popup) ---------- */
+#rfx-root .rfx-authgate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  margin: 14px;
+  padding: 24px 18px;
+  border: 1px solid var(--rfx-border);
+  border-radius: 12px;
+  background: var(--rfx-surface-2);
+}
+#rfx-root .rfx-authgate-ic { font-size: 26px; line-height: 1; }
+#rfx-root .rfx-authgate-t { display: flex; flex-direction: column; gap: 4px; }
+#rfx-root .rfx-authgate-t b { font-size: 14px; color: var(--rfx-text); }
+#rfx-root .rfx-authgate-t span { font-size: 12.5px; color: var(--rfx-text-2); line-height: 1.45; }
+
+/* ---------- Add to Reflex — inline review card ---------- */
+#rfx-root .rfx-add-row{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--rfx-border);font-size:12.5px}
+#rfx-root .rfx-add-row:last-of-type{border-bottom:none}
+#rfx-root .rfx-add-row.col{flex-direction:column;gap:4px}
+#rfx-root .rfx-add-k{color:var(--rfx-text-3);min-width:88px;flex-shrink:0}
+#rfx-root .rfx-add-v{color:var(--rfx-text);font-weight:600}
+#rfx-root .rfx-add-empty{color:var(--rfx-text-3);font-weight:400;font-style:italic}
+/* editable Add form rows */
+#rfx-root .rfx-add-frow{display:flex;align-items:center;gap:10px;padding:5px 0}
+#rfx-root .rfx-add-frow.col{flex-direction:column;align-items:stretch;gap:5px}
+#rfx-root .rfx-add-frow .rfx-add-k{min-width:92px}
+#rfx-root .rfx-add-input,#rfx-root .rfx-add-select{flex:1;min-width:0;padding:7px 9px;border:1px solid var(--rfx-border);
+  border-radius:8px;font-size:12.5px;background:var(--rfx-surface);color:var(--rfx-text)}
+#rfx-root .rfx-add-frow.col .rfx-add-input{width:100%}
+#rfx-root .rfx-add-input:focus,#rfx-root .rfx-add-select:focus{outline:none;border-color:var(--rfx-indigo);
+  box-shadow:0 0 0 3px var(--rfx-indigo-tint)}
+#rfx-root .rfx-add-desc{color:var(--rfx-text-2);line-height:1.5;font-size:12px;max-height:120px;overflow:auto}
+#rfx-root .rfx-add-note{margin-top:10px;font-size:11.5px;color:var(--rfx-text-3)}
+#rfx-root .rfx-add-err{margin-top:10px;font-size:12px;color:var(--rfx-red-t);background:var(--rfx-red-b);
+  border:1px solid var(--rfx-border);padding:8px 10px;border-radius:8px}
+#rfx-root .rfx-add-err.hidden{display:none}
+
 /* ---------- floating launcher ---------- */
 #rfx-launcher {
   position: fixed;

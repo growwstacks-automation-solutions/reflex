@@ -3,53 +3,59 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reflex</title>
 <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <div id="app">
+    <!-- header (shared) -->
+    <div class="brandrow">
+      <div class="mark" id="brandMark">R</div>
+      <div class="brandtext">
+        <div class="bname">Reflex</div>
+        <div class="btag">Upwork copilot</div>
+      </div>
+    </div>
+
     <!-- signed-out -->
     <div id="signedOut" class="screen">
-      <div class="brandrow">
-        <div class="mark">R</div>
-        <div class="bname">Reflex</div>
-      </div>
       <div class="lead">Sign in to your Reflex account.</div>
-      <input class="field" id="email" type="email" placeholder="Work email" value="neha@growwstacks.com">
-      <input class="field" id="pw" type="password" placeholder="Password" value="••••••••">
+
+      <label class="flabel" for="email">Work email</label>
+      <input class="field" id="email" type="email" placeholder="you@growwstacks.com" autocomplete="username">
+
+      <label class="flabel" for="pw">Password</label>
+      <input class="field" id="pw" type="password" placeholder="••••••••" autocomplete="current-password">
+
+      <div class="err hidden" id="error"></div>
       <button class="btn primary full" id="signin">Sign in</button>
       <div class="hint">No OTP — your admin controls access.</div>
     </div>
 
     <!-- signed-in / active -->
     <div id="signedIn" class="screen hidden">
-      <div class="brandrow">
-        <div class="mark">R</div>
-        <div class="bname">Reflex</div>
+      <div class="usercard">
+        <div class="avatar" id="userAvatar">R</div>
+        <div class="userinfo">
+          <div class="uname" id="userName">Signed in</div>
+          <div class="status"><span class="dot"></span> Active</div>
+        </div>
       </div>
-      <div class="user">Neha K. · <b class="ok">Active</b></div>
+
       <div class="callout ok-bg">
-        Open any Upwork page and click the <b>Reflex</b> button in the bottom-right corner to start.
+        <span class="callout-ic">✦</span>
+        <span>Open any Upwork page and click the <b>Reflex</b> button in the bottom-right corner to start.</span>
       </div>
+
       <button class="btn ghost full" id="signout">Sign out</button>
     </div>
 
     <!-- deactivated -->
     <div id="deactivated" class="screen hidden">
-      <div class="brandrow">
-        <div class="mark muted">R</div>
-        <div class="bname">Reflex</div>
-      </div>
       <div class="callout warn-bg">
-        Your access has been turned off. Contact your admin.
+        <span class="callout-ic">!</span>
+        <span>Your access has been turned off. Contact your admin.</span>
       </div>
-    </div>
-
-    <!-- demo-only state switcher -->
-    <div class="demobar">
-      <span>Preview state:</span>
-      <button data-state="signedOut">Login</button>
-      <button data-state="signedIn">Active</button>
-      <button data-state="deactivated">Deactivated</button>
     </div>
   </div>
   <script src="popup.js"></script>

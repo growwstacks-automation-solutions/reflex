@@ -6,6 +6,7 @@ import { login } from "./auth";
 import { board } from "./board";
 import { checkJobs } from "./check";
 import { reps, assignJob } from "./assign";
+import { addJob } from "./addJob";
 
 export interface Env {
   // Secrets (NOT in wrangler.toml): .dev.vars locally, `wrangler secret put` in prod.
@@ -36,6 +37,7 @@ export default {
     if (route === "POST /jobs/assign") return assignJob(req, env);
     if (route === "POST /generate") return generateHandler(req, env);
     if (route === "POST /jobs/check") return checkJobs(req, env);
+    if (route === "POST /jobs/add") return addJob(req, env);
     return json({ error: "Not found." }, 404);
   },
 };
