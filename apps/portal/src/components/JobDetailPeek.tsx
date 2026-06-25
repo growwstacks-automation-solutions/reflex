@@ -1,4 +1,4 @@
-/* Reflex portal v3 — Job detail PEEK: compact, dismissible right panel for reading & deciding. */
+/* Reflex portal v4 — Job detail peek: half-screen panel, two-column layout. */
 
 import type React from "react";
 import { useEffect } from "react";
@@ -7,25 +7,53 @@ import { Button, TaxonomyChip, RelevanceBadge } from "@/components/ds";
 import { QualityChip, Mono, Eyebrow } from "@/components/ui";
 import type { Job } from "@/lib/types";
 
-function MetaCell({ label, children }: { label: string; children: React.ReactNode }) {
+/* ── Small building blocks ── */
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 13, fontWeight: 500 }}>{children}</div>
+    <div style={{
+      fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+      color: "var(--text-tertiary)", marginBottom: 10,
+    }}>{children}</div>
+  );
+}
+
+function DataRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div style={{
+      display: "flex", justifyContent: "space-between", alignItems: "baseline",
+      gap: 8, padding: "7px 0", borderBottom: "1px solid var(--border)",
+    }}>
+      <span style={{ fontSize: 12.5, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{label}</span>
+      <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)", textAlign: "right" }}>{value}</span>
     </div>
   );
 }
 
-function MiniRow({ label, value }: { label: string; value: React.ReactNode }) {
+function StatCard({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-      <span style={{ fontSize: 12.5, color: "var(--text-secondary)" }}>{label}</span>
-      <span style={{ fontSize: 12.5, fontWeight: 500, textAlign: "right" }}>{value}</span>
+    <div style={{
+      flex: 1, minWidth: 0,
+      background: "var(--surface-2)", borderRadius: 8,
+      padding: "10px 12px",
+    }}>
+      <div style={{ fontSize: 10.5, color: "var(--text-tertiary)", fontWeight: 500, marginBottom: 4, letterSpacing: "0.02em" }}>{label}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "var(--font-mono)", color: "var(--text-primary)", letterSpacing: "-0.02em" }}>{value}</div>
     </div>
   );
 }
 
-export function JobDetailPeek({ job, onClose, onGenerate, onAssign }: { job: Job | null; onClose: () => void; onGenerate: (job: Job) => void; onAssign: (job: Job) => void }): JSX.Element | null {
+/* ── Main component ── */
+
+export function JobDetailPeek({
+  job, onClose, onGenerate, onAssign,
+}: {
+  job: Job | null;
+  onClose: () => void;
+  onGenerate: (job: Job) => void;
+  onAssign: (job: Job) => void;
+}): JSX.Element | null {
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
@@ -33,99 +61,195 @@ export function JobDetailPeek({ job, onClose, onGenerate, onAssign }: { job: Job
   }, [onClose]);
 
   if (!job) return null;
+
   const cl = job.classification;
-  const c = job.client;
-  const upworkUrl = job.url;
+  const c  = job.client;
+
+  const panelStyle: React.CSSProperties = {
+    position: "absolute", top: 0, right: 0,
+    height: "100%",
+    width: "min(820px, 58vw)",   /* ~half the screen, capped at 820px */
+    background: "var(--surface)",
+    borderLeft: "1px solid var(--border)",
+    boxShadow: "var(--shadow-panel)",
+    display: "flex", flexDirection: "column",
+    animation: "rx-slide-in 0.22s cubic-bezier(0.32,0.72,0,1)",
+  };
+
+  const colBase: React.CSSProperties = {
+    flex: 1, minWidth: 0,
+    overflowY: "auto",
+    padding: "20px 22px",
+  };
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 80 }}>
-      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(20,18,15,0.32)", animation: "rx-fade 0.15s ease" }}></div>
-      <div style={{
-        position: "absolute", top: 0, right: 0, height: "100%", width: 460, maxWidth: "92vw",
-        background: "var(--bg-card)", borderLeft: "1px solid var(--border)",
-        boxShadow: "var(--shadow-panel)", display: "flex", flexDirection: "column",
-        animation: "rx-slide-in 0.22s cubic-bezier(0.32,0.72,0,1)",
-      }}>
-        {/* Top bar */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: "1px solid var(--border)" }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, letterSpacing: "0.03em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>Job detail</span>
-          <button onClick={onClose} aria-label="Close" style={{
-            width: 30, height: 30, borderRadius: "var(--radius-button)", border: "1px solid var(--border)",
-            background: "var(--surface)", color: "var(--text-secondary)", cursor: "pointer",
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-          }}><RXIcons.x size={16} /></button>
-        </div>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{ position: "absolute", inset: 0, background: "rgba(10,12,24,0.35)", animation: "rx-fade 0.15s ease" }}
+      />
 
-        {/* Scroll body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "18px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <RelevanceBadge state={job.relevance} />
-            <QualityChip quality={job.quality} />
+      {/* Panel */}
+      <div style={panelStyle}>
+
+        {/* ── Top bar ── */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "13px 18px", borderBottom: "1px solid var(--border)",
+          background: "var(--surface)", flexShrink: 0,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <RelevanceBadge state={job.relevance} dense />
+            <QualityChip quality={job.quality} dense />
           </div>
-          <h2 style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 600, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{job.title}</h2>
-
-          {/* Reason for selection — highlighted */}
-          <div style={{ display: "flex", gap: 9, padding: "11px 13px", background: "var(--accent-tint)", borderRadius: "var(--radius-card)", marginBottom: 14 }}>
-            <span style={{ color: "var(--accent)", flex: "none", marginTop: 1 }}><RXIcons.spark size={15} /></span>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--accent-on-tint)", marginBottom: 3 }}>Why this job</div>
-              <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.45 }}>{job.reason}</div>
-            </div>
-          </div>
-
-          {/* Chips */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-            {job.chips.map((ch, i) => <TaxonomyChip key={i} level={ch.level} isNew={ch.isNew}>{ch.label}</TaxonomyChip>)}
-          </div>
-
-          {/* Meta strip */}
-          <div style={{ display: "flex", gap: 12, padding: "12px 14px", background: "var(--bg-raised)", borderRadius: "var(--radius-card)", marginBottom: 16 }}>
-            <MetaCell label="Budget"><Mono>{job.budget}</Mono></MetaCell>
-            <MetaCell label="Connects"><Mono>{job.connects}</Mono></MetaCell>
-            <MetaCell label="Posted"><Mono>{job.postedAgo}</Mono></MetaCell>
-          </div>
-
-          {/* Description */}
-          <Eyebrow style={{ marginBottom: 6 }}>Job description</Eyebrow>
-          <p style={{ margin: "0 0 18px", fontSize: 13.5, lineHeight: 1.6, color: "var(--text-secondary)" }}>{job.desc}</p>
-
-          {/* Classification + Client snapshot side by side */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <Eyebrow style={{ marginBottom: 6 }}>Classification</Eyebrow>
-              <MiniRow label="Tool" value={cl.tool} />
-              <MiniRow label="Use case" value={cl.usecase} />
-              <MiniRow label="Department" value={cl.dept} />
-              <MiniRow label="Industry" value={cl.industry} />
-            </div>
-            <div>
-              <Eyebrow style={{ marginBottom: 6 }}>Client snapshot</Eyebrow>
-              <MiniRow label="Spend" value={<Mono>{c.spend}</Mono>} />
-              <MiniRow label="Hire rate" value={<Mono>{c.hireRate}</Mono>} />
-              <MiniRow label="Location" value={c.location} />
-              <MiniRow label="Payment" value={c.payment} />
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>Job detail</span>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              style={{
+                width: 28, height: 28, borderRadius: "var(--radius-button)",
+                border: "1px solid var(--border)", background: "var(--surface-2)",
+                color: "var(--text-secondary)", cursor: "pointer",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <RXIcons.x size={14} />
+            </button>
           </div>
         </div>
 
-        {/* Footer actions */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 18px", borderTop: "1px solid var(--border)" }}>
+        {/* ── Two-column body ── */}
+        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+
+          {/* ════ LEFT: Job details + description ════ */}
+          <div style={{ ...colBase, borderRight: "1px solid var(--border)" }}>
+
+            {/* Title */}
+            <h2 style={{
+              margin: "0 0 14px", fontSize: 17, fontWeight: 700,
+              lineHeight: 1.35, letterSpacing: "-0.015em", color: "var(--text-primary)",
+            }}>{job.title}</h2>
+
+            {/* Why this job */}
+            {job.reason && (
+              <div style={{
+                display: "flex", gap: 9, padding: "10px 13px",
+                background: "var(--accent-tint)", borderRadius: "var(--radius-card)",
+                marginBottom: 16, borderLeft: "3px solid var(--accent)",
+              }}>
+                <RXIcons.spark size={14} style={{ color: "var(--accent)", flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--accent-on-tint)", marginBottom: 3, letterSpacing: "0.04em", textTransform: "uppercase" }}>Why this job</div>
+                  <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.5 }}>{job.reason}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Taxonomy chips */}
+            {job.chips.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 16 }}>
+                {job.chips.map((ch, i) => <TaxonomyChip key={i} level={ch.level} isNew={ch.isNew}>{ch.label}</TaxonomyChip>)}
+              </div>
+            )}
+
+            {/* Stat cards: budget · connects · posted */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+              <StatCard label="Budget"   value={<Mono>{job.budget   || "—"}</Mono>} />
+              <StatCard label="Connects" value={<Mono>{job.connects || "—"}</Mono>} />
+              <StatCard label="Posted"   value={<Mono>{job.postedAgo}</Mono>} />
+            </div>
+
+            {/* Full description */}
+            <SectionLabel>Job description</SectionLabel>
+            <div style={{
+              fontSize: 13.5, lineHeight: 1.7, color: "var(--text-secondary)",
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>{job.desc || "No description available."}</div>
+          </div>
+
+          {/* ════ RIGHT: Classification + Client snapshot ════ */}
+          <div style={{ ...colBase, maxWidth: 260, flexShrink: 0 }}>
+
+            {/* Client snapshot */}
+            <SectionLabel>Client snapshot</SectionLabel>
+            <div style={{ marginBottom: 22 }}>
+              <DataRow label="Spend"    value={<Mono>{c.spend    || "—"}</Mono>} />
+              <DataRow label="Hire rate" value={<Mono>{c.hireRate || "—"}</Mono>} />
+              <DataRow label="Location" value={c.location || "—"} />
+              <DataRow
+                label="Payment"
+                value={
+                  c.payment === "Verified"
+                    ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "var(--relevant-text)", fontWeight: 600 }}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+                        Verified
+                      </span>
+                    : <span style={{ color: "var(--text-tertiary)" }}>{c.payment || "—"}</span>
+                }
+              />
+            </div>
+
+            {/* Classification */}
+            <SectionLabel>Classification</SectionLabel>
+            <div style={{ marginBottom: 22 }}>
+              <DataRow label="Tool"       value={cl.tool       || "—"} />
+              <DataRow label="Use case"   value={cl.usecase    || "—"} />
+              <DataRow label="Department" value={cl.dept       || "—"} />
+              <DataRow label="Industry"   value={cl.industry   || "—"} />
+            </div>
+
+            {/* Ownership */}
+            <SectionLabel>Assignment</SectionLabel>
+            <div style={{ marginBottom: 22 }}>
+              <DataRow
+                label="Status"
+                value={
+                  job.ownership === "mine"
+                    ? <span style={{ color: "var(--accent)", fontWeight: 600 }}>Assigned to you</span>
+                    : job.ownership === "available"
+                    ? <span style={{ color: "#3FA67E", fontWeight: 600 }}>Available</span>
+                    : <span style={{ color: "var(--text-secondary)" }}>Assigned</span>
+                }
+              />
+              <DataRow
+                label="Proposal"
+                value={
+                  job.actionState === "submitted"
+                    ? <span style={{ color: "var(--relevant-text)", fontWeight: 600 }}>Submitted</span>
+                    : job.actionState === "conversation"
+                    ? <span style={{ color: "var(--info-text)", fontWeight: 600 }}>In conversation</span>
+                    : <span style={{ color: "var(--text-tertiary)" }}>Not submitted</span>
+                }
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Footer ── */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: "12px 18px", borderTop: "1px solid var(--border)",
+          background: "var(--surface)", flexShrink: 0,
+        }}>
           <Button
             variant="ghost"
             size="md"
-            icon={<RXIcons.external size={15} />}
-            disabled={!upworkUrl}
-            onClick={() => { if (upworkUrl) window.open(upworkUrl, "_blank", "noopener,noreferrer"); }}
+            icon={<RXIcons.external size={14} />}
+            disabled={!job.url}
+            onClick={() => { if (job.url) window.open(job.url, "_blank", "noopener,noreferrer"); }}
           >
             Open on Upwork
           </Button>
-          <div style={{ flex: 1 }}></div>
-          {job.ownership === "available"
-            ? <Button variant="secondary" onClick={() => onAssign(job)}>Assign to me</Button>
-            : null}
+          <div style={{ flex: 1 }} />
+          {job.ownership === "available" && (
+            <Button variant="secondary" onClick={() => onAssign(job)}>Assign to me</Button>
+          )}
           {job.relevance !== "irrelevant"
-            ? <Button spark onClick={() => onGenerate(job)}>Generate proposal</Button>
-            : <span style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>Auto-filtered — not pursued</span>}
+            ? <Button spark onClick={() => onGenerate(job)}>+ Generate proposal</Button>
+            : <span style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>Auto-filtered — not pursued</span>
+          }
         </div>
       </div>
     </div>
