@@ -93,9 +93,18 @@ export async function fetchJob(
   const spend = (r.client_spend as string) ?? "";
   const clientContext = [country, spend].filter(Boolean).join(" · ");
 
-  // Postgres text[] comes back as a JS array; coerce nullish to [] and drop empty entries.
-  const toLinks = (v: unknown): string[] =>
-    Array.isArray(v) ? (v as unknown[]).map(String).map((s) => s.trim()).filter(Boolean) : [];
+  // Postgres text[] usually comes back as a JS array, but tolerate a "{a,b}" array literal
+  // (and a bare string) so the loom/image links survive whatever shape the driver returns.
+  const toLinks = (v: unknown): string[] => {
+    if (Array.isArray(v)) return v.map(String).map((s) => s.trim()).filter(Boolean);
+    if (typeof v === "string" && v.startsWith("{")) {
+      return v.replace(/^\{|\}$/g, "").split(",")
+        .map((s) => s.replace(/^"|"$/g, "").trim())
+        .filter(Boolean);
+    }
+    if (typeof v === "string") return v.trim() ? [v.trim()] : [];
+    return [];
+  };
 
   const base: JobInput = {
     title: (r.title as string) ?? "",

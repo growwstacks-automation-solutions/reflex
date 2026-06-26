@@ -23,6 +23,24 @@ function linkLabel(url: string): string {
   }
 }
 
+/**
+ * `jobs.looms` entries arrive from the asset matcher as `"Title — https://loom.com/..."`
+ * (em-dash separated). Split that into a clean title + URL for display. Falls back to the
+ * whole string as the title if there's no recognizable URL part.
+ */
+function parseLoom(raw: string): { title: string; url: string } {
+  // Prefer splitting on the matcher's " — " separator, but also tolerate a bare URL.
+  const sep = raw.lastIndexOf(" — ");
+  if (sep !== -1) {
+    const title = raw.slice(0, sep).trim();
+    const url = raw.slice(sep + 3).trim();
+    return { title: title || linkLabel(url), url };
+  }
+  // No separator — if the whole thing is a URL, label it from the URL; else it's just a title.
+  const looksUrl = /^https?:\/\//i.test(raw.trim());
+  return looksUrl ? { title: linkLabel(raw), url: raw.trim() } : { title: raw.trim(), url: "" };
+}
+
 function assembleProposal({
   cover,
   screening,
@@ -329,8 +347,9 @@ function WorkSamples({
         <>
           <Eyebrow style={{ marginBottom: 10, marginTop: images.length > 0 ? 16 : 0 }}>Loom walkthrough</Eyebrow>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {looms.map((url, i) => {
-              const inserted = insertedLooms.includes(url);
+            {looms.map((raw, i) => {
+              const inserted = insertedLooms.includes(raw);
+              const { title, url } = parseLoom(raw);
               return (
                 <div key={i} style={{
                   display: "flex", alignItems: "center", gap: 11, padding: "9px 11px",
@@ -340,10 +359,10 @@ function WorkSamples({
                 }}>
                   <span style={{ width: 30, height: 30, borderRadius: 6, background: "var(--surface-2)", color: inserted ? "var(--accent)" : "var(--text-secondary)", display: "inline-flex", alignItems: "center", justifyContent: "center", flex: "none" }}><RXIcons.play size={13} /></span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{linkLabel(url)}</div>
-                    <Mono style={{ color: "var(--text-tertiary)", fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{url}</Mono>
+                    <div style={{ fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+                    {url && <Mono style={{ color: "var(--text-tertiary)", fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{url}</Mono>}
                   </div>
-                  <button onClick={() => toggleLoom(url)} style={{
+                  <button onClick={() => toggleLoom(raw)} style={{
                     display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", flex: "none",
                     borderRadius: "var(--radius-button)", cursor: "pointer", fontSize: 12.5, fontWeight: 500,
                     border: inserted ? "1px solid var(--terracotta-100)" : "1px solid var(--border)",

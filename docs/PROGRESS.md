@@ -8,6 +8,26 @@ to look to see where things stand. Newest entry at the top.
 
 ## Session log
 
+### 2026-06-25 — Align portal with the asset matcher (loom format) after colleague's `/generate` change
+- **Context:** a colleague added `matchAssets()` (`apps/api/src/matchAssets.ts`) — a single-job port
+  of the n8n "Match Resources" node, called first in `POST /generate`. It scores `loom_videos` +
+  `knowledge_base` against the job and **upserts** the top picks onto `jobs.looms` / `jobs.image_links`
+  (idempotent — skips a job already matched). They also added `/jobs/add` + `/jobs/classify`
+  (extension-facing; not part of the portal proposal flow).
+- **Cross-check / gap found:** the matcher stores **looms as `"Title — https://loom.com/…"`** (em-dash
+  + URL), not a bare URL — but our portal Work Samples row assumed a bare URL. So `linkLabel()` ran
+  `new URL("Title — …")`, threw, and showed a garbled last-path-segment as the loom title, with the
+  whole `"Title — url"` string in the URL line. `image_links` are bare URLs (already fine).
+- **Did (frontend):** added `parseLoom()` to split `"Title — URL"` into a clean title + URL (tolerates
+  a bare URL or a title-only string); the loom row now shows the real title and the URL separately, and
+  toggles by the raw stored string (so attach/insert still round-trips). `assembleProposal` keeps the
+  full `"Title — URL"` line in the exported text (correct there).
+- **Did (API):** hardened `job.ts` `toLinks` to also parse a Postgres `"{a,b}"` array-literal string
+  (parity with the matcher's `toArrayText`), so looms/images survive whatever shape the driver returns.
+- **Verified:** portal `tsc` + `vite build` green; API `tsc` green.
+- **Next:** unchanged from below — apply `0004`, eyeball a real generate (now exercises the matcher),
+  confirm `loom_videos` + `knowledge_base` are populated so matches actually return picks.
+
 ### 2026-06-25 — Proposal workspace runs on real AI (`/generate`) + per-job work samples
 - **What:** "Generate proposal" in the portal now calls the live `POST /generate` Worker (Claude
   Haiku) instead of showing the static `RX_DATA.proposal`/`assets` demo. The cover letter, screening
