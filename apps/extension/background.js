@@ -49,6 +49,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         .then((result) => sendResponse({ result }))
         .catch((e) => sendResponse({ error: errMsg(e) }));
       return true;
+    case "FETCH_ASSET":
+      fetchAsset(msg.url)
+        .then((data) => sendResponse(data))
+        .catch((e) => sendResponse({ error: errMsg(e) }));
+      return true;
     // TODO(backend): SUGGEST_REPLY.
     default:
       return false;
@@ -154,6 +159,29 @@ async function classifyJob(payload) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data && data.error ? data.error : `CLASSIFY ${res.status}`);
   return data;
+}
+
+// Fetch a work-sample image cross-origin and return it base64-encoded. The content script
+// can't fetch these directly (the page's CORS blocks drive.google.com), but the background
+// can — host_permissions cover the image hosts. Used to bundle real images into the ZIP.
+async function fetchAsset(url) {
+  if (!url) return { error: "No URL" };
+  let res;
+  try {
+    res = await fetch(url, { credentials: "omit" });
+  } catch (e) {
+    return { error: `Fetch failed (host not permitted?): ${errMsg(e)}` };
+  }
+  if (!res.ok) return { error: `HTTP ${res.status}` };
+  const contentType = res.headers.get("content-type") || "";
+  const buf = new Uint8Array(await res.arrayBuffer());
+  // arrayBuffer -> base64, chunked so a big image doesn't blow the call stack.
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < buf.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
+  }
+  return { ok: true, base64: btoa(binary), contentType, bytes: buf.length };
 }
 
 // POST the visible job ids to the Worker; returns { [jobId]: status }.

@@ -69,12 +69,20 @@
   function assetLabel(name) {
     return name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim() || name;
   }
+  // A Google Drive share link (…/file/d/ID/view or …?id=ID) isn't a direct image — turn it
+  // into the viewable thumbnail endpoint so an <img> can render it. Other URLs pass through.
+  function imageSrcFor(url) {
+    const u = String(url || "");
+    const m = u.match(/\/file\/d\/([-\w]{10,})/) || u.match(/[?&]id=([-\w]{10,})/);
+    if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000`;
+    return u;
+  }
   // image_links (raw screenshot URLs) -> tiles the proposal tab renders + zips.
   function buildAssets(imageLinks) {
     return (Array.isArray(imageLinks) ? imageLinks : []).filter(Boolean).map((raw, i) => {
       const url = String(raw);
       const name = assetFilename(url, i);
-      return { url, name, label: assetLabel(name), bg: ASSET_PALETTE[i % ASSET_PALETTE.length] };
+      return { url, src: imageSrcFor(url), name, label: assetLabel(name), bg: ASSET_PALETTE[i % ASSET_PALETTE.length] };
     });
   }
   // looms come as "Title — https://loom…" strings; split the title from the URL.
@@ -121,6 +129,7 @@
   let rfxAddData = null;    // captured job under review in the "Add to Reflex" card
   let rfxAddOpen = false;   // true while the Add review card is showing (suppresses mirror re-render)
   let rfxAddClass = null;   // last /jobs/classify result for the card { token_cost_inr, cache_status, tokens }
+  let rfxAddSaved = false;  // true once the open Add card has been persisted (dedupes save-on-leave)
   let rfxAwaitOpenForAdd = null; // jobId the rep wants to add from the listing — waiting for them to open it
 
   /* ---------- build launcher ---------- */
@@ -145,7 +154,6 @@
     <div class="rfx-switch">
       <button class="rfx-tab" data-s="listing">Listing</button>
       <button class="rfx-tab" data-s="job">Job</button>
-      <button class="rfx-tab" data-s="proposal">Proposal</button>
       <button class="rfx-tab" data-s="messages">Messages</button>
     </div>
     <div class="rfx-body" id="rfx-body"></div>
@@ -153,10 +161,20 @@
   `;
   document.body.appendChild(root);
 
-  root.querySelector(".rfx-x").addEventListener("click", closePanel);
+  // Closing the panel / switching tabs leaves the Add card — if it was classified but not yet
+  // saved, offer to save it first (see confirmLeaveAddCard).
+  root.querySelector(".rfx-x").addEventListener("click", () => confirmLeaveAddCard(closePanel));
   root.querySelectorAll(".rfx-tab").forEach(tab => {
-    tab.addEventListener("click", () => { surface = tab.dataset.s; render(); });
+    tab.addEventListener("click", () => {
+      const s = tab.dataset.s;
+      confirmLeaveAddCard(() => { surface = s; render(); });
+    });
   });
+
+  // Hard close (tab/window closed or navigated away): best-effort save of a classified-but-
+  // unsaved Add card so the classification we paid for isn't lost. pagehide fires on real
+  // unload (not on mere tab switches), so reps aren't auto-saved just for glancing away.
+  window.addEventListener("pagehide", flushAddOnLeave);
 
   function openPanel() {
     root.classList.add("rfx-open"); launcher.classList.add("rfx-hidden");
@@ -241,7 +259,8 @@
 
   /* Generate a proposal: switch to the Proposal tab, show a waiting state, then call
      the Worker's /generate (Claude) via the background worker and reveal the draft. */
-  async function startGeneration(jobId) {
+  async function startGeneration(jobId, opts) {
+    const stay = !!(opts && opts.stay); // Job tab: render the proposal inline, stay on this tab
     rfxGenJobId = jobId || openJobNumericId();
     rfxGenState = "generating";
     rfxGenResult = null;
@@ -249,8 +268,9 @@
     rfxLooms = [];
     selectedAssets = new Set();
     rfxGenError = "";
-    surface = "proposal";
+    if (!stay) surface = "proposal";
     render();
+    if (stay) scrollToJobProposal();
     const open = readOpenJob();                       // page-captured context the DB row lacks
     const payload = {
       job_id: rfxGenJobId || "STUB-0001",             // stub mode ignores the id; real mode uses it
@@ -272,6 +292,7 @@
       rfxGenState = "error";
     }
     render();
+    if (stay) scrollToJobProposal();
   }
 
   // Ask the background worker to POST /generate. Resolves to { result } or { error }.
@@ -611,15 +632,88 @@
     if (!jobId) return;
     rfxAddData = collectAddData(jobId, fallbackTitle);
     rfxAddClass = null; // fresh card — no classification yet
+    rfxAddSaved = false; // fresh card — not yet persisted
     rfxAddOpen = true; // hold off the mirror so Upwork DOM churn won't wipe this card
     const body = root.querySelector("#rfx-body");
     body.innerHTML = renderAddForm(rfxAddData);
     const cancel = body.querySelector("[data-add-cancel]");
-    if (cancel) cancel.addEventListener("click", () => render());
+    if (cancel) cancel.addEventListener("click", () => confirmLeaveAddCard(() => render()));
     const confirm = body.querySelector("[data-add-confirm]");
     if (confirm) confirm.addEventListener("click", () => submitAdd(confirm));
     const classifyBtn = body.querySelector("[data-classify]");
     if (classifyBtn) classifyBtn.addEventListener("click", () => runClassify(classifyBtn, body));
+  }
+
+  // Job-tab "Add to Reflex": the same Add review process, but the job card slides to the
+  // BOTTOM and the form sits on top. On a successful add we re-render the Job tab — the
+  // job is now in the DB, so the card shows only Generate (enabled). (Cancel returns to it.)
+  function openJobAddReview(jobId, fallbackTitle) {
+    if (!jobId) return;
+    rfxAddData = collectAddData(jobId, fallbackTitle);
+    rfxAddClass = null; // fresh card — no classification yet
+    rfxAddSaved = false; // fresh card — not yet persisted
+    rfxAddOpen = true; // hold off the mirror so Upwork DOM churn won't wipe this card
+    const body = root.querySelector("#rfx-body");
+    // Card pinned to the TOP as the header; the Add process (form) follows below it.
+    // The card is collapsed (title only) with a toggle to expand the full job details back.
+    body.innerHTML =
+      jobMinCardHTML(rfxAddData, fallbackTitle) +
+      `<div id="rfx-jobadd-form">${renderAddForm(rfxAddData)}</div>`;
+    // Scroll up to the top of the process (the rep may have been scrolled deep in the job).
+    // rAF so the swap has laid out before we scroll, else the assignment is clobbered.
+    requestAnimationFrame(() => { if (body.scrollTo) body.scrollTo({ top: 0, behavior: "smooth" }); else body.scrollTop = 0; });
+    wireJobMinCard(body);
+    const cancel = body.querySelector("[data-add-cancel]");
+    if (cancel) cancel.addEventListener("click", () => confirmLeaveAddCard(() => render()));
+    const confirm = body.querySelector("[data-add-confirm]");
+    if (confirm) confirm.addEventListener("click", () => submitAdd(confirm));
+    const classifyBtn = body.querySelector("[data-classify]");
+    if (classifyBtn) classifyBtn.addEventListener("click", () => runClassify(classifyBtn, body));
+  }
+
+  // The collapsed "Adding this job" header card. Title is always shown; the chevron expands
+  // the captured details (type · budget, experience, client, description) back into view.
+  function jobMinCardHTML(d, fallbackTitle) {
+    d = d || {};
+    const title = d.title || fallbackTitle || "(this job)";
+    const metaLine = [d.contract_type, d.budget_text].filter(Boolean).join(" · ");
+    const tags = [d.experience_level, d.client_country, d.client_spend].filter(Boolean)
+      .map((x) => `<span class="rfx-jt-posted">${esc(x)}</span>`).join("");
+    const details =
+      (metaLine ? `<div class="rfx-jt-meta"><span class="rfx-jt-budget">${esc(metaLine)}</span>${tags}</div>`
+        : (tags ? `<div class="rfx-jt-meta">${tags}</div>` : "")) +
+      (d.description ? `<div class="rfx-jobdesc">${esc(d.description)}</div>` : "");
+    return `<div class="rfx-job-card rfx-job-card-min" data-collapsed="1">
+      <div class="rfx-jc-min-head">
+        <div class="rfx-jc-min-id">
+          <div class="rfx-jc-min-cap">Adding this job to ${SYSTEM_NAME}</div>
+          <div class="rfx-job-title">${esc(title)}</div>
+        </div>
+        <button class="rfx-jc-min-toggle" data-jobcard-toggle aria-expanded="false" title="Show job details">▾</button>
+      </div>
+      <div class="rfx-jc-min-body"${details ? "" : " data-empty"} hidden>${details || `<div class="rfx-add-note">No extra detail captured for this job.</div>`}</div>
+    </div>`;
+  }
+
+  function wireJobMinCard(scope) {
+    const toggle = scope.querySelector("[data-jobcard-toggle]");
+    if (!toggle) return;
+    toggle.addEventListener("click", () => {
+      const card = toggle.closest(".rfx-job-card-min");
+      const det = card && card.querySelector(".rfx-jc-min-body");
+      const collapsed = card.getAttribute("data-collapsed") === "1";
+      card.setAttribute("data-collapsed", collapsed ? "0" : "1");
+      if (det) det.hidden = !collapsed; // collapsed -> now expanded -> show
+      toggle.setAttribute("aria-expanded", collapsed ? "true" : "false");
+      toggle.title = collapsed ? "Hide job details" : "Show job details";
+    });
+  }
+
+  // Scroll the panel to the inline proposal (the Job tab's Generate flow renders it below).
+  function scrollToJobProposal() {
+    const body = root.querySelector("#rfx-body");
+    const el = body && body.querySelector("#rfx-job-proposal");
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   // Ask the background to POST /jobs/classify. Resolves to { result } or { error }.
@@ -696,12 +790,82 @@
     const resp = await apiAddJob(payload);
     if (resp && resp.status && !resp.error) {
       rfxJobCache[payload.upwork_job_id] = resp.status; // strip will now show "In Reflex ✓"
+      rfxAddSaved = true; // persisted — the save-on-leave guard won't fire for this card
       render();
+      // Job now in the DB: card is back at the top with Generate enabled — show it.
+      const b = root.querySelector("#rfx-body");
+      if (b) requestAnimationFrame(() => { if (b.scrollTo) b.scrollTo({ top: 0, behavior: "smooth" }); else b.scrollTop = 0; });
     } else {
       btn.disabled = false;
       btn.textContent = "Confirm add";
       showErr((resp && resp.error) || "Couldn't add this job.");
     }
+  }
+
+  // --- Save the classified Add card on leave -------------------------------
+  // A card is "dirty" once Check relevance ran (rfxAddClass) but it hasn't been saved yet.
+  function addCardDirty() { return rfxAddOpen && !!rfxAddClass && !rfxAddSaved; }
+
+  // Persist the open Add card right now (used by the leave prompt). Resolves true on success.
+  async function saveAddCardNow() {
+    const body = root.querySelector("#rfx-body");
+    if (!body) return false;
+    const payload = readAddForm(body);
+    if (!payload.upwork_job_id || !payload.title) return false;
+    const resp = await apiAddJob(payload);
+    if (resp && resp.status && !resp.error) {
+      rfxJobCache[payload.upwork_job_id] = resp.status;
+      rfxAddSaved = true;
+      return true;
+    }
+    return false;
+  }
+
+  // Guarded leave: if the open Add card was classified-but-unsaved, ask before leaving;
+  // otherwise just proceed. `proceed` performs the actual navigation (render/close/switch).
+  function confirmLeaveAddCard(proceed) {
+    if (!addCardDirty()) { proceed(); return; }
+    showLeaveModal(proceed);
+  }
+
+  function showLeaveModal(proceed) {
+    if (root.querySelector(".rfx-leave-modal")) return; // don't stack
+    const m = document.createElement("div");
+    m.className = "rfx-leave-modal";
+    m.innerHTML = `
+      <div class="rfx-leave-box">
+        <div class="rfx-leave-title">Save this job to ${SYSTEM_NAME}?</div>
+        <div class="rfx-leave-msg">You ran <b>Check relevance</b> on this job. Save it to your board so the classification isn't lost?</div>
+        <div class="rfx-leave-err hidden" data-leave-err></div>
+        <div class="rfx-leave-acts">
+          <button class="rfx-btn ghost sm" data-leave="stay">Keep editing</button>
+          <button class="rfx-btn primary sm" data-leave="save">Save to ${SYSTEM_NAME}</button>
+        </div>
+      </div>`;
+    root.appendChild(m);
+    const close = () => m.remove();
+    m.querySelector('[data-leave="stay"]').addEventListener("click", close);
+    m.querySelector('[data-leave="save"]').addEventListener("click", async (e) => {
+      const sb = e.currentTarget;
+      sb.disabled = true; sb.textContent = "Saving…";
+      const ok = await saveAddCardNow();
+      if (ok) { close(); proceed(); return; }
+      sb.disabled = false; sb.textContent = `Save to ${SYSTEM_NAME}`;
+      const err = m.querySelector("[data-leave-err]");
+      if (err) { err.textContent = "Couldn't save — try again."; err.classList.remove("hidden"); }
+    });
+  }
+
+  // Hard close (pagehide): can't prompt, so best-effort save via the background. Fire-and-
+  // forget — the service worker completes the POST independently of the unloading page.
+  function flushAddOnLeave() {
+    if (!addCardDirty()) return;
+    const body = root.querySelector("#rfx-body");
+    if (!body) return;
+    const payload = readAddForm(body);
+    if (!payload.upwork_job_id || !payload.title) return;
+    rfxAddSaved = true; // optimistic dedupe
+    try { chrome.runtime.sendMessage({ type: "ADD_JOB", payload }); } catch (e) { /* best effort */ }
   }
 
   function chipsHTML(chips) {
@@ -756,7 +920,7 @@
 
   // The strip inside each sidebar card — same signals as the old tile strip, laid
   // out for the narrow panel (pills wrap, chips truncate, action on its own row).
-  function listCardInner(data) {
+  function listCardInner(data, jobTab) {
     if (data.checking) {
       return `<div class="rfx-jc-line"><span class="rfx-spin dark"></span><span class="rfx-jc-note">${SYSTEM_NAME} · checking…</span></div>`;
     }
@@ -764,6 +928,14 @@
       return `<div class="rfx-jc-line"><span class="rfx-jc-note">${SYSTEM_NAME} · not synced</span></div>`;
     }
     if (!data.inReflex) {
+      // Job tab: both actions, but Generate is locked until the job is added.
+      if (jobTab) {
+        return `<div class="rfx-jc-line"><span class="rfx-jc-note">Not in ${SYSTEM_NAME} yet</span></div>` +
+          `<div class="rfx-jc-acts">` +
+          `<button class="rfx-tag-add" data-card-add>＋ Add to ${SYSTEM_NAME}</button>` +
+          `<button class="rfx-tag-gen" data-card-gen disabled title="Add to ${SYSTEM_NAME} first"><span class="rfx-spark">✦</span> Generate</button>` +
+          `</div>`;
+      }
       return `<div class="rfx-jc-line"><span class="rfx-jc-note">Not in ${SYSTEM_NAME} yet</span><span class="rfx-jc-spacer"></span><button class="rfx-tag-add" data-card-add>＋ Add to ${SYSTEM_NAME}</button></div>`;
     }
     const rel = `<span class="rfx-tag-relevance ${data.verdict}"><span class="rfx-tag-ic">${VERDICT_ICON[data.verdict] || ""}</span>${esc(VERDICT_LABEL[data.verdict] || "—")}</span>`;
@@ -818,6 +990,7 @@
   // never collides with other surfaces' [data-add]. Generate opens the Upwork
   // detail page in a new tab on YOUR click (navigation only — no auto-submit).
   function wireListCard(card, jobId) {
+    const jobTab = surface === "job";
     const add = card.querySelector("[data-card-add]");
     if (add) add.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
@@ -827,13 +1000,17 @@
       // open on Upwork (Job tab), review now; otherwise (a listing card) ask the rep to open
       // it first — opening it auto-switches to the Job tab.
       const open = readOpenJob();
-      if (open && open.id === jobId) openAddReview(jobId, title);
+      if (jobTab && open && open.id === jobId) openJobAddReview(jobId, title); // merged flow
+      else if (open && open.id === jobId) openAddReview(jobId, title);
       else promptOpenJobToAdd(jobId, title);
     });
-    const gen = card.querySelector("[data-card-gen], [data-card-regen]");
+    // Skip the locked (disabled) Generate; a real one is wired once the job is added.
+    const gen = card.querySelector("[data-card-gen]:not([disabled]), [data-card-regen]");
     if (gen) gen.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
-      startGeneration(jobId); // switch to Proposal tab + waiting state + draft
+      // Job tab: keep the proposal inline below the card. Listing: switch to the Proposal tab.
+      if (jobTab) startGeneration(jobId, { stay: true });
+      else startGeneration(jobId);
     });
   }
 
@@ -890,18 +1067,35 @@
     const data = (open.id && rfxJobCache[open.id]) ||
       (open.id ? { connected: true, checking: true } : { connected: false });
     const dim = data.connected && data.verdict === "irr" ? " rfx-dim" : "";
+    // Compact facts up top (type · price, posted date) — same as a Listing tile.
+    const budgetText = [open.type, open.budget].filter(Boolean).join(" · ");
+    const metaBits = [];
+    if (budgetText) metaBits.push(`<span class="rfx-jt-budget">${esc(budgetText)}</span>`);
+    if (open.posted) metaBits.push(`<span class="rfx-jt-posted">${esc(open.posted)}</span>`);
+    const metaRow = metaBits.length ? `<div class="rfx-jt-meta">${metaBits.join("")}</div>` : "";
     const meta = open.meta.map((v) => `<span class="rfx-detail-stat">${esc(v)}</span>`).join("");
     const stats = open.client.map((v) => `<span class="rfx-detail-stat client">${esc(v)}</span>`).join("");
+    // Once Generate runs for THIS job, the proposal renders inline below the card
+    // (the Job + Proposal flow is one scroll). Idle -> nothing here; the card's button is the CTA.
+    const showProp = rfxGenState !== "idle" && rfxGenJobId && rfxGenJobId === open.id;
+    const propSection = showProp
+      ? `<div id="rfx-job-proposal" class="rfx-job-proposal">
+          <div class="rfx-prop-divider"><span class="rfx-spark">✦</span> Proposal</div>
+          ${renderProposal(true)}
+        </div>`
+      : "";
     return `
       <div class="rfx-context-note">This job — read from the Upwork page. Status from ${SYSTEM_NAME}.</div>
       <div class="rfx-job-card${dim}" data-rfx-jobtab="${esc(open.id)}">
         <div class="rfx-job-title" style="-webkit-line-clamp:3">${esc(open.title)}</div>
-        <div class="rfx-job-strip">${listCardInner(data)}</div>
+        ${metaRow}
+        <div class="rfx-job-strip">${listCardInner(data, true)}</div>
         ${meta ? `<div class="rfx-jc-stats">${meta}</div>` : ""}
         ${stats ? `<div class="rfx-jc-stats">${stats}</div>` : ""}
         ${open.description ? `<div class="rfx-jobdesc">${esc(open.description)}</div>` : ""}
         ${open.cipher ? `<button class="rfx-btn primary full rfx-mt" data-apply="${esc(applyUrlFor(open.cipher))}">Apply on Upwork →</button>` : ""}
       </div>
+      ${propSection}
     `;
   }
 
@@ -1007,7 +1201,16 @@
       pick(/\b\d{1,3}%\s*hire rate/i),
       /payment (?:method )?verified/i.test(text) ? "✓ Payment verified" : "",
     ].filter(Boolean);
-    return { id, title, description, meta, client, cipher: openJobCipherId() };
+    // Compact card facts (same as a Listing tile): type · price, and the posted date.
+    const type = /fixed[- ]price/i.test(text) ? "Fixed-price" : (/\bhourly\b/i.test(text) ? "Hourly" : "");
+    const hr = text.match(/\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?\s*\/\s*hr/i);
+    const est = text.match(/Est(?:imated)?\.?\s*budget:?\s*\$[\d.,]+\s*[KMB]?/i);
+    const budget = hr
+      ? hr[0].replace(/\s+/g, " ").trim()
+      : est ? est[0].replace(/Est(?:imated)?\.?\s*budget:?\s*/i, "").replace(/\s+/g, " ").trim() : "";
+    const pm = text.match(/Posted\s+[^·|]+?\bago\b/i);
+    const posted = pm ? pm[0].trim() : "";
+    return { id, title, description, meta, client, type, budget, posted, cipher: openJobCipherId() };
   }
 
   /* Job-tab status: one CHECK_JOBS lookup for the open job, cached + debounced.
@@ -1032,7 +1235,7 @@
     const data = (id && rfxJobCache[id]) ||
       (id ? { connected: true, checking: true } : { connected: false });
     const strip = card.querySelector(".rfx-job-strip");
-    if (strip) { strip.innerHTML = listCardInner(data); wireListCard(card, id); }
+    if (strip) { strip.innerHTML = listCardInner(data, true); wireListCard(card, id); }
     card.classList.toggle("rfx-dim", !!(data.connected && data.verdict === "irr"));
   }
 
@@ -1040,9 +1243,10 @@
      Generated pieces the rep copies / downloads into Upwork's apply form. Reflex
      never writes to the page: cover letter + answer = Copy, work samples = Download
      selected as a zip, Loom = Copy link. */
-  function renderProposal() {
+  function renderProposal(embedded) {
     const open = readOpenJob();                    // the job this proposal is for
-    const jobHead = open
+    // Embedded in the Job tab the card already names the job — skip the duplicate header.
+    const jobHead = (!embedded && open)
       ? `<div class="rfx-prop-job"><div class="rfx-prop-job-cap">Proposal for</div><div class="rfx-prop-job-title">${esc(open.title)}</div></div>`
       : "";
 
@@ -1098,24 +1302,28 @@
 
     const recsSec = recs.length ? `
       <div class="rfx-prop-sec">
-        <div class="rfx-section-label">Suggested work samples</div>
+        <div class="rfx-section-label">Suggested Proposal points to select</div>
         <div class="rfx-hint">${SYSTEM_NAME} recommends these from your portfolio for this job:</div>
         ${recs.map((r) => {
-          const why = r.why || r.reason || "";
+          // Title = portfolio location (e.g. "Portfolio p5, item 1"); subheading = the sample name.
           const where = (r.page != null) ? `Portfolio p${r.page}, item ${r.position}` : (r.where || "");
-          return `<div class="rfx-rec"><b>${esc(r.title || "")}</b>${why ? `<span>${esc(why)}</span>` : ""}${where ? `<em>${esc(where)}</em>` : ""}</div>`;
+          const title = where || (r.title || "");
+          const sub = where ? (r.title || "") : "";
+          return `<div class="rfx-rec"><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>`;
         }).join("")}
       </div>` : "";
 
     // Work samples — real screenshot URLs (jobs.image_links). Hidden when the job has none.
     const assetsSec = rfxAssets.length ? `
       <div class="rfx-prop-sec">
-        <div class="rfx-section-label">Work samples</div>
+        <div class="rfx-section-label">Attachments</div>
         <div class="rfx-hint">Pick the samples relevant to this job, then download them as one zip to upload to Upwork.</div>
         <div class="rfx-assets" id="rfx-assets">
           ${rfxAssets.map((a, i) => `
             <div class="rfx-asset ${selectedAssets.has(i) ? "sel" : ""}" data-asset="${i}" style="background:${a.bg}" title="${esc(a.url)}">
-              <span class="rfx-check">✓</span>${esc(a.label)}
+              ${a.src ? `<img class="rfx-asset-img" data-asset-img src="${esc(a.src)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}
+              <span class="rfx-check">✓</span>
+              <span class="rfx-asset-cap">${esc(a.label)}</span>
             </div>`).join("")}
         </div>
         <div class="rfx-between rfx-mt">
@@ -1125,6 +1333,8 @@
       </div>` : "";
 
     // Loom walkthroughs — real links (jobs.looms). Title shown, the URL is what Copy copies.
+    // Hidden for now (flip SHOW_LOOM to re-enable); the section is kept built, just not rendered.
+    const SHOW_LOOM = false;
     const loomSec = rfxLooms.length ? `
       <div class="rfx-prop-sec">
         <div class="rfx-section-label">Loom video${rfxLooms.length > 1 ? "s" : ""}</div>
@@ -1152,7 +1362,7 @@
       ${screeningSecs}
       ${recsSec}
       ${assetsSec}
-      ${loomSec}
+      ${SHOW_LOOM ? loomSec : ""}
     `;
   }
 
@@ -1205,6 +1415,38 @@
     ));
     return new Blob([...parts, ...central, eocd], { type: "application/zip" });
   }
+
+  // Ask the background to fetch an image cross-origin. Resolves to { ok, base64, contentType } or { error }.
+  function apiFetchAsset(url) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "FETCH_ASSET", url }, (resp) => {
+          if (chrome.runtime.lastError || !resp) {
+            resolve({ error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || "No response" });
+            return;
+          }
+          resolve(resp);
+        });
+      } catch (e) { resolve({ error: String(e) }); }
+    });
+  }
+  // base64 (from the background fetch) -> bytes for the ZIP.
+  function b64ToBytes(b64) {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  // File extension from a content-type, so the zipped image lands as .jpg/.png/etc.
+  function extFromType(ct) {
+    const t = String(ct || "").toLowerCase();
+    if (t.includes("jpeg") || t.includes("jpg")) return "jpg";
+    if (t.includes("png")) return "png";
+    if (t.includes("webp")) return "webp";
+    if (t.includes("gif")) return "gif";
+    if (t.includes("svg")) return "svg";
+    return "";
+  }
   async function downloadSelectedZip(btn) {
     const idxs = [...selectedAssets];
     if (!idxs.length) return flash(btn, "Select at least one sample");
@@ -1217,11 +1459,19 @@
       const a = rfxAssets[i];
       if (!a) continue;
       let data = null, name = a.name || `${a.label}.bin`;
-      if (a.url) {
-        try { const r = await fetch(a.url); if (r.ok) data = new Uint8Array(await r.arrayBuffer()); } catch (e) { /* fall back */ }
+      // Fetch the real image via the BACKGROUND (host_permissions bypass the page's CORS,
+      // which would otherwise block drive.google.com). Prefer the viewable thumbnail URL.
+      const fetchUrl = a.src || a.url;
+      if (fetchUrl) {
+        const resp = await apiFetchAsset(fetchUrl);
+        if (resp && resp.ok && resp.base64) {
+          data = b64ToBytes(resp.base64);
+          const ext = extFromType(resp.contentType);
+          if (ext) name = `${(a.label || `work-sample-${i + 1}`).replace(/[^\w.-]+/g, "-")}.${ext}`;
+        }
       }
-      if (!data) { // no real url yet — placeholder so the zip still downloads
-        data = enc.encode(`Reflex work sample — ${a.label}\n\nThis is a placeholder. The real file from your R2 library replaces this once assets are wired.`);
+      if (!data) { // couldn't fetch the real bytes — placeholder so the zip still downloads
+        data = enc.encode(`Reflex work sample — ${a.label}\n\nCouldn't fetch ${fetchUrl || "this asset"}.\nIf this persists, the image host may need to be added to the extension's host_permissions.`);
         name = name.replace(/\.[^.]+$/, "") + ".txt";
       }
       files.push({ name, data });
@@ -1334,9 +1584,16 @@
         if (zip) zip.disabled = selectedAssets.size === 0;
       }));
 
-    // proposal: the idle "Generate proposal" CTA
-    const gp = body.querySelector("[data-gen-proposal]");
-    if (gp) gp.addEventListener("click", () => startGeneration());
+    // proposal: if a work-sample image can't load (CSP / not public), hide it so the
+    // colored tile + caption show instead of a broken-image icon. (Inline onerror is
+    // blocked by Upwork's page CSP, so wire it here.)
+    body.querySelectorAll("[data-asset-img]").forEach((img) =>
+      img.addEventListener("error", () => { img.style.display = "none"; }));
+
+    // proposal: the idle "Generate proposal" CTA + Regenerate / Try again.
+    // On the Job tab the proposal lives inline below the card, so stay on this tab.
+    body.querySelectorAll("[data-gen-proposal]").forEach((gp) =>
+      gp.addEventListener("click", () => startGeneration(undefined, { stay: surface === "job" })));
 
     // proposal: download the selected work samples as one zip
     const zip = body.querySelector("[data-zip]");
@@ -2109,6 +2366,9 @@
         } else if (!openId) {
           rfxLastOpenId = "";
         }
+        // Job tab with an inline proposal up for THIS job: don't re-render over it — the rep
+        // may be editing the cover letter / picking samples (same guard the apply page gets).
+        if (surface === "job" && rfxGenState !== "idle" && rfxGenJobId && rfxGenJobId === openId) return;
         if (surface === "listing" || surface === "job") render();
       }, 250);
     });

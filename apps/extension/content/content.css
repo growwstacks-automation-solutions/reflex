@@ -260,6 +260,24 @@
   background: var(--rfx-canvas);
 }
 .rfx-edit:focus { outline: 2px solid var(--rfx-indigo); outline-offset: 1px; border-color: transparent; }
+/* the cover letter is the main draft — give it a taller default box (still resizable) */
+#rfx-root #rfx-cover { min-height: 280px; }
+
+/* "Save before leaving?" prompt — shown when a classified Add card is being dismissed */
+#rfx-root .rfx-leave-modal {
+  position: absolute; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(15,23,42,0.45); padding: 18px;
+}
+#rfx-root .rfx-leave-box {
+  background: #fff; border-radius: 14px; padding: 18px; width: 100%; max-width: 320px;
+  box-shadow: 0 12px 34px rgba(0,0,0,0.28);
+}
+#rfx-root .rfx-leave-title { font-size: 14.5px; font-weight: 700; color: var(--rfx-text); margin-bottom: 6px; }
+#rfx-root .rfx-leave-msg { font-size: 12.5px; line-height: 1.5; color: var(--rfx-text-2); }
+#rfx-root .rfx-leave-err { margin-top: 8px; font-size: 12px; color: var(--rfx-red-t); }
+#rfx-root .rfx-leave-err.hidden { display: none; }
+#rfx-root .rfx-leave-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
 /* tone toggle */
 .rfx-tones { display: flex; gap: 6px; margin: 8px 0; }
@@ -277,6 +295,20 @@
   border: 2px solid transparent;
 }
 .rfx-asset.sel { border-color: var(--rfx-indigo); }
+/* the real screenshot fills the tile; the colored bg shows through if it fails to load */
+#rfx-root .rfx-asset-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; border-radius: 5px; display: block;
+}
+/* caption sits over a gradient so the label stays readable on any image */
+#rfx-root .rfx-asset-cap {
+  position: relative; z-index: 1; width: 100%;
+  font-size: 10px; line-height: 1.2; color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  background: linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0));
+  padding: 10px 4px 2px; border-radius: 0 0 5px 5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .rfx-asset .rfx-check {
   position: absolute; top: 5px; right: 5px; width: 16px; height: 16px;
   background: var(--rfx-indigo); border-radius: 50%; display: none;
@@ -449,6 +481,51 @@
 #rfx-root .rfx-job-card .rfx-tag-add:hover { background: var(--rfx-indigo-press); }
 #rfx-root .rfx-job-card .rfx-tag-gen.quiet {
   background: var(--rfx-green-b); color: var(--rfx-green-t); box-shadow: none;
+}
+/* Job tab: the two-action row (Add + Generate) when a job isn't in Reflex yet.
+   Generate is locked (disabled) until the job is added. */
+#rfx-root .rfx-jc-acts { display: flex; align-items: center; gap: 8px; }
+#rfx-root .rfx-jc-acts .rfx-tag-add { font-size: 12.5px; padding: 8px 14px; }
+#rfx-root .rfx-job-card .rfx-tag-gen[disabled] {
+  background: var(--rfx-surface-2); color: var(--rfx-text-3);
+  box-shadow: none; cursor: not-allowed;
+}
+#rfx-root .rfx-job-card .rfx-tag-gen[disabled]:hover { background: var(--rfx-surface-2); }
+
+/* Job tab merged flow: the collapsed "Adding this job" header card (toggle expands detail) */
+#rfx-root .rfx-jc-min-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+#rfx-root .rfx-jc-min-id { min-width: 0; }
+#rfx-root .rfx-jc-min-cap {
+  font-size: 10.5px; font-weight: 700; color: var(--rfx-indigo-press);
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px;
+}
+#rfx-root .rfx-job-card-min .rfx-job-title { margin: 0; }
+#rfx-root .rfx-jc-min-toggle {
+  flex: none; width: 26px; height: 26px; border-radius: 7px;
+  border: 1px solid var(--rfx-border); background: var(--rfx-surface-2);
+  color: var(--rfx-text-2); font-size: 13px; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: transform .18s ease, background .15s ease;
+}
+#rfx-root .rfx-jc-min-toggle:hover { background: var(--rfx-indigo-tint); color: var(--rfx-indigo-press); }
+#rfx-root .rfx-job-card-min[data-collapsed="0"] .rfx-jc-min-toggle { transform: rotate(180deg); }
+#rfx-root .rfx-jc-min-body {
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rfx-border);
+}
+#rfx-root .rfx-jc-min-body[hidden] { display: none; }
+#rfx-root .rfx-jc-min-body .rfx-jobdesc { margin-top: 8px; padding-top: 8px; }
+/* Job tab: the proposal rendered inline below the job card — lightly highlighted region */
+#rfx-root .rfx-job-proposal {
+  margin-top: 12px; padding: 12px;
+  border: 1px solid var(--rfx-indigo); border-left-width: 3px; border-radius: 12px;
+  background: var(--rfx-indigo-tint);
+}
+#rfx-root .rfx-job-proposal > .rfx-prop-sec:last-child,
+#rfx-root .rfx-job-proposal > *:last-child { margin-bottom: 0; }
+#rfx-root .rfx-prop-divider {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--rfx-indigo-press);
 }
 
 /* ---------- injected Reflex strip (clean, scannable bar at the TOP of each job card) ---------- */
