@@ -54,19 +54,37 @@
     "Hello! Lead nurture in GHL is my core work — I'll connect your forms, build the email/SMS sequences, set the pipeline automations, and tie in calendar booking so follow-up is automatic. Happy to walk you through a live build I've done for a similar client. Realistic timeline is about a week. When works for a short call?"
   ];
 
-  // MOCK: saved assets (in production these come from the rep's R2 library, each
-  // with a real `url`). `name` is the filename used inside the downloaded zip.
-  const MOCK_ASSETS = [
-    { label: "GHL pipeline", bg: "#3C3489", name: "ghl-pipeline.png" },
-    { label: "Nurture flow", bg: "#0F6E56", name: "nurture-flow.png" },
-    { label: "Dashboard",    bg: "#0C447C", name: "dashboard.png" },
-    { label: "Call booking", bg: "#854F0B", name: "call-booking.png" },
-    { label: "Results",      bg: "#A32D2D", name: "results.png" },
-    { label: "Before/after", bg: "#993C1D", name: "before-after.png" }
-  ];
+  // Work-sample tile colours, cycled across the real image_links for this job.
+  const ASSET_PALETTE = ["#3C3489", "#0F6E56", "#0C447C", "#854F0B", "#A32D2D", "#993C1D"];
 
-  // MOCK: the rep's relevant Loom walkthrough for this job (backend supplies the real one).
-  const MOCK_LOOM = "https://www.loom.com/share/reflex-ghl-automation-demo";
+  // Filename used inside the downloaded zip, derived from the asset URL.
+  function assetFilename(url, i) {
+    try {
+      const last = new URL(url).pathname.split("/").filter(Boolean).pop();
+      if (last && /\.[a-z0-9]{2,5}$/i.test(last)) return decodeURIComponent(last);
+    } catch (e) { /* not a full URL — fall through */ }
+    return `work-sample-${i + 1}.png`;
+  }
+  // Short, human tile label from a filename ("ghl_pipeline.png" -> "ghl pipeline").
+  function assetLabel(name) {
+    return name.replace(/\.[^.]+$/, "").replace(/[-_]+/g, " ").trim() || name;
+  }
+  // image_links (raw screenshot URLs) -> tiles the proposal tab renders + zips.
+  function buildAssets(imageLinks) {
+    return (Array.isArray(imageLinks) ? imageLinks : []).filter(Boolean).map((raw, i) => {
+      const url = String(raw);
+      const name = assetFilename(url, i);
+      return { url, name, label: assetLabel(name), bg: ASSET_PALETTE[i % ASSET_PALETTE.length] };
+    });
+  }
+  // looms come as "Title — https://loom…" strings; split the title from the URL.
+  function parseLoom(s) {
+    const raw = String(s || "").trim();
+    const m = raw.match(/https?:\/\/\S+/);
+    const url = m ? m[0] : "";
+    const title = (url ? raw.replace(url, "").replace(/[\s—–-]+$/, "").trim() : raw) || "Loom walkthrough";
+    return { title, url, raw };
+  }
 
   // MOCK: a screening question on the job.
   const MOCK_QUESTION = {
@@ -89,7 +107,9 @@
 
   /* ---------- state ---------- */
   let surface = "listing"; // open on the live job-listing replica
-  let selectedAssets = new Set([0, 1]);
+  let selectedAssets = new Set();
+  let rfxAssets = [];      // work samples for the current proposal (from /generate image_links)
+  let rfxLooms = [];       // loom rows for the current proposal (from /generate looms)
   let draftIndex = 0;
   let activeTone = "base";
   let rfxLastOpenId = ""; // last Upwork job id seen open — drives auto-switch to the Job tab
@@ -100,6 +120,7 @@
   let rfxAuth = null;       // { token, user } from the background (signed-in rep), or null
   let rfxAddData = null;    // captured job under review in the "Add to Reflex" card
   let rfxAddOpen = false;   // true while the Add review card is showing (suppresses mirror re-render)
+  let rfxAddClass = null;   // last /jobs/classify result for the card { token_cost_inr, cache_status, tokens }
   let rfxAwaitOpenForAdd = null; // jobId the rep wants to add from the listing — waiting for them to open it
 
   /* ---------- build launcher ---------- */
@@ -224,6 +245,9 @@
     rfxGenJobId = jobId || openJobNumericId();
     rfxGenState = "generating";
     rfxGenResult = null;
+    rfxAssets = [];
+    rfxLooms = [];
+    selectedAssets = new Set();
     rfxGenError = "";
     surface = "proposal";
     render();
@@ -237,6 +261,11 @@
     const resp = await apiGenerate(payload);
     if (resp && resp.result && !resp.error) {
       rfxGenResult = resp.result;
+      // Real work samples + Loom for this job, straight from the /generate response
+      // (jobs.image_links / jobs.looms, filled by the asset matcher). All selected by default.
+      rfxAssets = buildAssets(resp.result.image_links);
+      rfxLooms = (Array.isArray(resp.result.looms) ? resp.result.looms : []).map(parseLoom);
+      selectedAssets = new Set(rfxAssets.map((_, i) => i));
       rfxGenState = "ready";
     } else {
       rfxGenError = (resp && resp.error) || "Generation failed";
@@ -315,6 +344,22 @@
     const client_payment_verified = /payment (?:method )?verified/i.test(text) ? true : null;
     const loc = readClientLocation(region);
 
+    // Structured budget: pull the $ number(s) out of budget_text and route by contract type.
+    const moneyNums = (budget_text.match(/[\d.,]+/g) || [])
+      .map((x) => Number(x.replace(/,/g, "")))
+      .filter((n) => Number.isFinite(n));
+    const fixed_currency = /\$/.test(budget_text) ? "USD" : "";
+    let fixed_amount = "", fixed_amount_max = "", hourly_min = "", hourly_max = "";
+    if (contract_type === "Hourly") {
+      if (moneyNums[0] != null) hourly_min = moneyNums[0];
+      if (moneyNums[1] != null) hourly_max = moneyNums[1];
+    } else if (contract_type === "Fixed-price") {
+      if (moneyNums[0] != null) fixed_amount = moneyNums[0];
+      if (moneyNums[1] != null) fixed_amount_max = moneyNums[1];
+    }
+    const hiresM = text.match(/(\d+)\s+hires?\b/i);
+    const total_hired = hiresM ? Number(hiresM[1]) : "";
+
     return {
       upwork_job_id: jobId,
       title: open.title || fallbackTitle || "(untitled job)",
@@ -328,6 +373,18 @@
       client_city: loc.city,
       client_spend,
       client_payment_verified,
+      // Structured budget / terms (auto where parseable; editable otherwise)
+      fixed_amount, fixed_amount_max, fixed_currency,
+      hourly_min, hourly_max, hourly_budget_type: "",
+      engagement_weeks: "", posted_at: "",
+      // Client detail (not reliably on the page — editable)
+      client_country_code: "", client_timezone: "", client_billing_type: "", last_client_activity: "",
+      // Activity / competition (mostly editable; total_hired best-effort)
+      has_bids: null, bid_min_rate: "", bid_avg_rate: "", bid_max_rate: "",
+      invites_sent: "", total_invited_to_interview: "", total_hired,
+      total_offered: "", total_unanswered_invites: "",
+      // Attachments (apply-page only — editable)
+      attachments_count: "", attachments_filenames: "",
     };
   }
 
@@ -364,7 +421,7 @@
       `<input class="rfx-add-input" data-f="${k}" value="${val(v)}" placeholder="${esc(ph || "")}"></label>`;
     const numf = (k, label, v) =>
       `<label class="rfx-add-frow"><span class="rfx-add-k">${esc(label)}</span>` +
-      `<input class="rfx-add-input" type="number" min="0" data-f="${k}" value="${val(v)}"></label>`;
+      `<input class="rfx-add-input" type="number" min="0" step="any" data-f="${k}" value="${val(v)}"></label>`;
     const area = (k, label, v) =>
       `<label class="rfx-add-frow col"><span class="rfx-add-k">${esc(label)}</span>` +
       `<textarea class="rfx-edit" data-f="${k}">${val(v)}</textarea></label>`;
@@ -378,9 +435,27 @@
     const ownerName = (rfxAuth && rfxAuth.user && (rfxAuth.user.full_name || rfxAuth.user.email)) || "you";
     const skillsStr = Array.isArray(d.skills) ? d.skills.join(", ") : (d.skills || "");
     const pay = d.client_payment_verified === true ? "true" : d.client_payment_verified === false ? "false" : "";
+    const hb = d.has_bids === true ? "true" : d.has_bids === false ? "false" : "";
 
     return `
-      <div class="rfx-context-note">All the fields ${SYSTEM_NAME} will save — edit anything, then confirm. The job is added to your board and claimed by you.</div>
+      <div class="rfx-context-note">All the fields ${SYSTEM_NAME} will save — run <b>Check relevance</b> to classify, edit anything, then confirm. The job is added to your board and claimed by you.</div>
+
+      <div class="rfx-prop-sec rfx-add-ai">
+        <div class="rfx-add-aihead">
+          <div class="rfx-section-label">AI classification — check before adding (editable)</div>
+          <button class="rfx-btn primary sm" data-classify><span class="rfx-spark">✦</span> Check relevance</button>
+        </div>
+        <div class="rfx-add-aicost hidden" data-aicost></div>
+        <div class="rfx-ai-wrap">
+          <div class="rfx-ai-fields${rfxAddClass ? "" : " rfx-blur"}" data-ai-fields>
+            ${sel("verdict", "Relevance", d.verdict || ai.verdict, [{ v: "relevant", t: "Relevant" }, { v: "review", t: "Needs review" }, { v: "irrelevant", t: "Not a fit" }])}
+            ${sel("quality", "Quality", d.quality || ai.quality, [{ v: "good", t: "Good" }, { v: "medium", t: "Medium" }, { v: "poor", t: "Poor" }])}
+            ${area("reason", "Reason", d.reason || ai.reason)}
+          </div>
+          <div class="rfx-ai-veil">Run <b>&nbsp;Check relevance&nbsp;</b> to reveal</div>
+        </div>
+        <div class="rfx-add-note">Taxonomy (tool · use case · department · industry) is set later by classification.</div>
+      </div>
 
       <div class="rfx-prop-sec">
         <div class="rfx-section-label">Job — captured from Upwork (editable)</div>
@@ -395,19 +470,46 @@
       </div>
 
       <div class="rfx-prop-sec">
-        <div class="rfx-section-label">Client (editable)</div>
-        ${text("client_country", "Country", d.client_country)}
-        ${text("client_city", "City", d.client_city)}
-        ${text("client_spend", "Spend", d.client_spend)}
-        ${sel("client_payment_verified", "Payment", pay, [{ v: "", t: "Unknown" }, { v: "true", t: "Verified" }, { v: "false", t: "Not verified" }])}
+        <div class="rfx-section-label">Budget &amp; terms (editable)</div>
+        ${numf("fixed_amount", "Fixed amount", d.fixed_amount)}
+        ${numf("fixed_amount_max", "Fixed amount (max)", d.fixed_amount_max)}
+        ${text("fixed_currency", "Currency", d.fixed_currency, "USD")}
+        ${numf("hourly_min", "Hourly min", d.hourly_min)}
+        ${numf("hourly_max", "Hourly max", d.hourly_max)}
+        ${text("hourly_budget_type", "Hourly budget type", d.hourly_budget_type)}
+        ${numf("engagement_weeks", "Engagement (weeks)", d.engagement_weeks)}
+        ${text("posted_at", "Posted at", d.posted_at, "YYYY-MM-DD")}
       </div>
 
       <div class="rfx-prop-sec">
-        <div class="rfx-section-label">AI fields — hardcoded for now (editable)</div>
-        ${sel("verdict", "Relevance", d.verdict || ai.verdict, [{ v: "relevant", t: "Relevant" }, { v: "review", t: "Needs review" }, { v: "irrelevant", t: "Not a fit" }])}
-        ${sel("quality", "Quality", d.quality || ai.quality, [{ v: "good", t: "Good" }, { v: "medium", t: "Medium" }, { v: "poor", t: "Poor" }])}
-        ${area("reason", "Reason", d.reason || ai.reason)}
-        <div class="rfx-add-note">Taxonomy (tool · use case · department · industry) is set later by classification.</div>
+        <div class="rfx-section-label">Client (editable)</div>
+        ${text("client_country", "Country", d.client_country)}
+        ${text("client_country_code", "Country code", d.client_country_code, "US")}
+        ${text("client_city", "City", d.client_city)}
+        ${text("client_timezone", "Timezone", d.client_timezone)}
+        ${text("client_spend", "Spend", d.client_spend)}
+        ${text("client_billing_type", "Billing type", d.client_billing_type)}
+        ${sel("client_payment_verified", "Payment", pay, [{ v: "", t: "Unknown" }, { v: "true", t: "Verified" }, { v: "false", t: "Not verified" }])}
+        ${text("last_client_activity", "Last client activity", d.last_client_activity, "YYYY-MM-DD")}
+      </div>
+
+      <div class="rfx-prop-sec">
+        <div class="rfx-section-label">Activity &amp; competition (editable)</div>
+        ${sel("has_bids", "Has bids", hb, [{ v: "", t: "Unknown" }, { v: "true", t: "Yes" }, { v: "false", t: "No" }])}
+        ${numf("bid_min_rate", "Bid min rate", d.bid_min_rate)}
+        ${numf("bid_avg_rate", "Bid avg rate", d.bid_avg_rate)}
+        ${numf("bid_max_rate", "Bid max rate", d.bid_max_rate)}
+        ${numf("invites_sent", "Invites sent", d.invites_sent)}
+        ${numf("total_invited_to_interview", "Invited to interview", d.total_invited_to_interview)}
+        ${numf("total_hired", "Total hired", d.total_hired)}
+        ${numf("total_offered", "Total offered", d.total_offered)}
+        ${numf("total_unanswered_invites", "Unanswered invites", d.total_unanswered_invites)}
+      </div>
+
+      <div class="rfx-prop-sec">
+        <div class="rfx-section-label">Attachments (editable)</div>
+        ${numf("attachments_count", "Attachments count", d.attachments_count)}
+        ${text("attachments_filenames", "Attachment filenames", d.attachments_filenames, "comma, separated")}
       </div>
 
       <div class="rfx-prop-sec">
@@ -426,7 +528,10 @@
   // Read the editable form back into an Add payload.
   function readAddForm(body) {
     const get = (k) => { const el = body.querySelector(`[data-f="${k}"]`); return el ? el.value : ""; };
+    const numV = (k) => { const v = get(k); return v === "" ? null : Number(v); };
+    const intV = (k) => { const v = get(k); return v === "" ? null : Math.trunc(Number(v)); };
     const pay = get("client_payment_verified");
+    const hb = get("has_bids");
     const connects = get("connects");
     return {
       upwork_job_id: (rfxAddData && rfxAddData.upwork_job_id) || "",
@@ -442,9 +547,40 @@
       client_city: get("client_city"),
       client_spend: get("client_spend"),
       client_payment_verified: pay === "true" ? true : pay === "false" ? false : null,
+      // Structured budget / terms
+      fixed_amount: numV("fixed_amount"),
+      fixed_amount_max: numV("fixed_amount_max"),
+      fixed_currency: get("fixed_currency"),
+      hourly_min: numV("hourly_min"),
+      hourly_max: numV("hourly_max"),
+      hourly_budget_type: get("hourly_budget_type"),
+      engagement_weeks: intV("engagement_weeks"),
+      posted_at: get("posted_at"),
+      // Client detail
+      client_country_code: get("client_country_code"),
+      client_timezone: get("client_timezone"),
+      client_billing_type: get("client_billing_type"),
+      last_client_activity: get("last_client_activity"),
+      // Activity / competition
+      has_bids: hb === "true" ? true : hb === "false" ? false : null,
+      bid_min_rate: numV("bid_min_rate"),
+      bid_avg_rate: numV("bid_avg_rate"),
+      bid_max_rate: numV("bid_max_rate"),
+      invites_sent: intV("invites_sent"),
+      total_invited_to_interview: intV("total_invited_to_interview"),
+      total_hired: intV("total_hired"),
+      total_offered: intV("total_offered"),
+      total_unanswered_invites: intV("total_unanswered_invites"),
+      // Attachments
+      attachments_count: intV("attachments_count"),
+      attachments_filenames: get("attachments_filenames"),
+      // AI fields
       verdict: get("verdict") || "review",
       quality: get("quality") || "medium",
       reason: get("reason"),
+      // Classification cost telemetry (set by Check relevance; null if never run)
+      token_cost_inr: rfxAddClass ? rfxAddClass.token_cost_inr : null,
+      cache_status: rfxAddClass ? rfxAddClass.cache_status : null,
     };
   }
 
@@ -474,6 +610,7 @@
   function openAddReview(jobId, fallbackTitle) {
     if (!jobId) return;
     rfxAddData = collectAddData(jobId, fallbackTitle);
+    rfxAddClass = null; // fresh card — no classification yet
     rfxAddOpen = true; // hold off the mirror so Upwork DOM churn won't wipe this card
     const body = root.querySelector("#rfx-body");
     body.innerHTML = renderAddForm(rfxAddData);
@@ -481,6 +618,69 @@
     if (cancel) cancel.addEventListener("click", () => render());
     const confirm = body.querySelector("[data-add-confirm]");
     if (confirm) confirm.addEventListener("click", () => submitAdd(confirm));
+    const classifyBtn = body.querySelector("[data-classify]");
+    if (classifyBtn) classifyBtn.addEventListener("click", () => runClassify(classifyBtn, body));
+  }
+
+  // Ask the background to POST /jobs/classify. Resolves to { result } or { error }.
+  function apiClassify(payload) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "CLASSIFY_JOB", payload }, (resp) => {
+          if (chrome.runtime.lastError || !resp) {
+            resolve({ error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || "No response from background" });
+            return;
+          }
+          resolve(resp);
+        });
+      } catch (e) { resolve({ error: String(e) }); }
+    });
+  }
+
+  // "Check relevance": classify the job as currently edited, fill the AI fields in place,
+  // and show the token/cost badge. The classification cost is stored (rfxAddClass) so the
+  // confirm step persists token_cost_inr + cache_status to the DB.
+  async function runClassify(btn, body) {
+    const cur = readAddForm(body); // classify what the rep currently sees (edits included)
+    const payload = {
+      title: cur.title,
+      description: cur.description,
+      skills: cur.skills,
+      client_country: cur.client_country,
+      budget_text: cur.budget_text,
+      contract_type: cur.contract_type,
+      experience_level: cur.experience_level,
+      client_spend: cur.client_spend,
+    };
+    const cost = body.querySelector("[data-aicost]");
+    const prev = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="rfx-spin"></span> Classifying…`;
+    if (cost) { cost.classList.remove("hidden"); cost.textContent = "Classifying with Claude…"; }
+
+    const resp = await apiClassify(payload);
+    btn.disabled = false;
+    btn.innerHTML = prev;
+
+    if (!resp || resp.error || !resp.result) {
+      if (cost) cost.textContent = "Couldn't classify: " + ((resp && resp.error) || "no result");
+      return;
+    }
+    const r = resp.result;
+    // Fill the editable AI fields in place (keep the rep's other edits intact).
+    const setVal = (k, v) => { const el = body.querySelector(`[data-f="${k}"]`); if (el && v != null) el.value = v; };
+    setVal("verdict", r.verdict);
+    setVal("quality", r.quality);
+    setVal("reason", r.reason);
+    // Reveal the now-filled AI fields.
+    const fields = body.querySelector("[data-ai-fields]");
+    if (fields) fields.classList.remove("rfx-blur");
+    // Remember the cost so Confirm add persists it to jobs.token_cost_inr / cache_status.
+    rfxAddClass = { token_cost_inr: r.cost_inr, cache_status: r.cache_status, tokens: r.tokens };
+    if (cost) {
+      const inr = typeof r.cost_inr === "number" ? r.cost_inr.toFixed(2) : r.cost_inr;
+      cost.textContent = `✦ ${r.tokens} tokens · ₹${inr} · cache ${r.cache_status} · model said ${r.relevance_raw}/${r.quality_raw}`;
+    }
   }
 
   async function submitAdd(btn) {
@@ -516,7 +716,8 @@
      observer (startMirror) keeps this in sync as the rep scrolls / paginates /
      searches. Nothing here injects into, fills, or clicks Upwork's page. */
 
-  // Read the jobs currently on the Upwork results page. Best-effort title selectors.
+  // Read the jobs currently on the Upwork results page. Best-effort selectors with
+  // text-pattern fallbacks (Upwork's tile testids drift) — read-only, never writes.
   function readVisibleTiles() {
     return Array.from(document.querySelectorAll(ANCHORS.jobTile)).map((tile) => {
       const jobId = tile.getAttribute("data-test-key") || tile.getAttribute("data-ev-job-uid") || "";
@@ -524,7 +725,32 @@
         "[data-test='job-tile-title-link'], [data-test='job-title-link'], a[href*='/jobs/'], h2 a, h3 a, h2, h3"
       );
       const title = titleEl ? titleEl.textContent.trim().replace(/\s+/g, " ") : "(untitled job)";
-      return { jobId, title };
+      const text = (tile.textContent || "").replace(/\s+/g, " ");
+
+      // Posted date — "Posted … ago". Selector first, then a text-pattern fallback.
+      const postedEl = tile.querySelector(
+        "[data-test='job-pubilshed-date'], [data-test='posted-on'], small[data-test='job-pubilshed-date'] span"
+      );
+      let posted = postedEl ? postedEl.textContent.trim().replace(/\s+/g, " ") : "";
+      if (!posted) { const m = text.match(/Posted\s+[^·|]+?\bago\b/i); posted = m ? m[0].trim() : ""; }
+
+      // One-line description snippet.
+      const descEl = tile.querySelector(
+        "[data-test='UpCLineClamp JobDescription'], [data-test='job-description-text'], [data-test='job-description'], [data-test='UpCJobsListItemDescription']"
+      );
+      const description = descEl ? descEl.textContent.trim().replace(/\s+/g, " ") : "";
+
+      // Budget / contract type — same facts the real Upwork tile shows.
+      const isFixed = /fixed[- ]price/i.test(text);
+      const isHourly = /\bhourly\b/i.test(text);
+      const type = isFixed ? "Fixed-price" : (isHourly ? "Hourly" : "");
+      const hr = text.match(/\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?\s*\/\s*hr/i);
+      const est = text.match(/Est(?:imated)?\.?\s*budget:?\s*\$[\d.,]+\s*[KMB]?/i);
+      const budget = hr
+        ? hr[0].replace(/\s+/g, " ").trim()
+        : est ? est[0].replace(/Est(?:imated)?\.?\s*budget:?\s*/i, "").replace(/\s+/g, " ").trim() : "";
+
+      return { jobId, title, posted, description, type, budget };
     });
   }
 
@@ -560,9 +786,18 @@
     const data = (job.jobId && rfxJobCache[job.jobId]) ||
       (job.jobId ? { connected: true, checking: true } : { connected: false });
     const dim = data.connected && data.verdict === "irr" ? " rfx-dim" : "";
+    // Budget · type, then posted date — the same facts the real Upwork tile shows.
+    const budgetText = [job.type, job.budget].filter(Boolean).join(" · ");
+    const metaBits = [];
+    if (budgetText) metaBits.push(`<span class="rfx-jt-budget">${esc(budgetText)}</span>`);
+    if (job.posted) metaBits.push(`<span class="rfx-jt-posted">${esc(job.posted)}</span>`);
+    const metaRow = metaBits.length ? `<div class="rfx-jt-meta">${metaBits.join("")}</div>` : "";
+    const desc = job.description ? `<div class="rfx-jt-desc">${esc(job.description)}</div>` : "";
     return `
       <div class="rfx-job-card${dim}" data-rfx-card="${esc(job.jobId)}">
         <div class="rfx-job-title">${esc(job.title)}</div>
+        ${metaRow}
+        ${desc}
         <div class="rfx-job-strip">${listCardInner(data)}</div>
       </div>`;
   }
@@ -872,6 +1107,34 @@
         }).join("")}
       </div>` : "";
 
+    // Work samples — real screenshot URLs (jobs.image_links). Hidden when the job has none.
+    const assetsSec = rfxAssets.length ? `
+      <div class="rfx-prop-sec">
+        <div class="rfx-section-label">Work samples</div>
+        <div class="rfx-hint">Pick the samples relevant to this job, then download them as one zip to upload to Upwork.</div>
+        <div class="rfx-assets" id="rfx-assets">
+          ${rfxAssets.map((a, i) => `
+            <div class="rfx-asset ${selectedAssets.has(i) ? "sel" : ""}" data-asset="${i}" style="background:${a.bg}" title="${esc(a.url)}">
+              <span class="rfx-check">✓</span>${esc(a.label)}
+            </div>`).join("")}
+        </div>
+        <div class="rfx-between rfx-mt">
+          <span class="rfx-meta" id="rfx-asset-count">${selectedAssets.size} selected</span>
+          <button class="rfx-btn primary sm" data-zip ${selectedAssets.size ? "" : "disabled"}><span class="rfx-dl">⬇</span> Download selected (ZIP)</button>
+        </div>
+      </div>` : "";
+
+    // Loom walkthroughs — real links (jobs.looms). Title shown, the URL is what Copy copies.
+    const loomSec = rfxLooms.length ? `
+      <div class="rfx-prop-sec">
+        <div class="rfx-section-label">Loom video${rfxLooms.length > 1 ? "s" : ""}</div>
+        ${rfxLooms.map((l) => `
+          <div class="rfx-loom-row">
+            <span class="rfx-loom-link" title="${esc(l.url || l.title)}">${esc(l.title)}</span>
+            <button class="rfx-btn ghost sm" data-loom="${esc(l.url || l.raw)}">Copy link</button>
+          </div>`).join("")}
+      </div>` : "";
+
     return `
       ${jobHead}
       <div class="rfx-context-note">Copy each piece into Upwork's apply form yourself — ${SYSTEM_NAME} never fills or submits the page.${cost ? ` <span class="rfx-cost">${cost}</span>` : ""}</div>
@@ -888,29 +1151,8 @@
 
       ${screeningSecs}
       ${recsSec}
-
-      <div class="rfx-prop-sec">
-        <div class="rfx-section-label">Work samples</div>
-        <div class="rfx-hint">Pick the samples relevant to this job, then download them as one zip to upload to Upwork.</div>
-        <div class="rfx-assets" id="rfx-assets">
-          ${MOCK_ASSETS.map((a, i) => `
-            <div class="rfx-asset ${selectedAssets.has(i) ? "sel" : ""}" data-asset="${i}" style="background:${a.bg}">
-              <span class="rfx-check">✓</span>${esc(a.label)}
-            </div>`).join("")}
-        </div>
-        <div class="rfx-between rfx-mt">
-          <span class="rfx-meta" id="rfx-asset-count">${selectedAssets.size} selected</span>
-          <button class="rfx-btn primary sm" data-zip ${selectedAssets.size ? "" : "disabled"}><span class="rfx-dl">⬇</span> Download selected (ZIP)</button>
-        </div>
-      </div>
-
-      <div class="rfx-prop-sec">
-        <div class="rfx-section-label">Loom video</div>
-        <div class="rfx-loom-row">
-          <span class="rfx-loom-link">${esc(MOCK_LOOM)}</span>
-          <button class="rfx-btn ghost sm" data-loom>Copy link</button>
-        </div>
-      </div>
+      ${assetsSec}
+      ${loomSec}
     `;
   }
 
@@ -972,7 +1214,8 @@
     const enc = new TextEncoder();
     const files = [];
     for (const i of idxs) {
-      const a = MOCK_ASSETS[i];
+      const a = rfxAssets[i];
+      if (!a) continue;
       let data = null, name = a.name || `${a.label}.bin`;
       if (a.url) {
         try { const r = await fetch(a.url); if (r.ok) data = new Uint8Array(await r.arrayBuffer()); } catch (e) { /* fall back */ }
@@ -1110,9 +1353,9 @@
         copyText(b, el ? el.value : "");
       }));
 
-    // proposal: copy the Loom link
+    // proposal: copy the Loom link (the real URL lives on each row's data-loom)
     body.querySelectorAll("[data-loom]").forEach(b =>
-      b.addEventListener("click", () => copyText(b, MOCK_LOOM)));
+      b.addEventListener("click", () => copyText(b, b.dataset.loom || "")));
 
     // messages: suggested reply (with generating state)
     const sg = body.querySelector("[data-suggest]");

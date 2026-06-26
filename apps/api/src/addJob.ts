@@ -22,10 +22,40 @@ interface AddBody {
   client_city?: string;
   client_spend?: string;
   client_payment_verified?: boolean | null;
-  // AI fields (editable; hardcoded defaults until a classifier exists)
+  // Structured budget / terms
+  fixed_amount?: number | string;
+  fixed_amount_max?: number | string;
+  fixed_currency?: string;
+  hourly_min?: number | string;
+  hourly_max?: number | string;
+  hourly_budget_type?: string;
+  engagement_weeks?: number | string;
+  posted_at?: string;
+  // Client detail
+  client_country_code?: string;
+  client_timezone?: string;
+  client_billing_type?: string;
+  last_client_activity?: string;
+  // Activity / competition
+  has_bids?: boolean | null;
+  bid_min_rate?: number | string;
+  bid_avg_rate?: number | string;
+  bid_max_rate?: number | string;
+  invites_sent?: number | string;
+  total_invited_to_interview?: number | string;
+  total_hired?: number | string;
+  total_offered?: number | string;
+  total_unanswered_invites?: number | string;
+  // Attachments
+  attachments_count?: number | string;
+  attachments_filenames?: string;
+  // AI fields (editable; from /jobs/classify or the hardcoded defaults)
   verdict?: string;
   quality?: string;
   reason?: string;
+  // Classification cost telemetry (from /jobs/classify; stored as-is)
+  token_cost_inr?: number | string;
+  cache_status?: string;
 }
 
 const VERDICTS = new Set(["relevant", "review", "irrelevant"]);
@@ -36,6 +66,30 @@ const DEFAULT_REASON = "Added manually from the extension — pending classifica
 function s(v: unknown): string | null {
   const t = (v ?? "").toString().trim();
   return t === "" ? null : t;
+}
+
+// Typed coercers for the optional numeric/boolean/timestamp columns. Anything blank
+// or unparseable becomes null so we never write garbage to a typed column.
+function num(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function int(v: unknown): number | null {
+  const n = num(v);
+  return n == null ? null : Math.trunc(n);
+}
+function bool(v: unknown): boolean | null {
+  if (typeof v === "boolean") return v;
+  if (v === "true") return true;
+  if (v === "false") return false;
+  return null;
+}
+function ts(v: unknown): string | null {
+  const t = s(v);
+  if (!t) return null;
+  const ms = Date.parse(t);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
 }
 
 export async function addJob(req: Request, env: Env): Promise<Response> {
@@ -93,12 +147,27 @@ export async function addJob(req: Request, env: Env): Promise<Response> {
       insert into jobs (
         upwork_job_id, title, description, url, skills, budget_text, contract_type,
         experience_level, connects, client_country, client_city, client_spend,
-        client_payment_verified, verdict, quality, reason, ingested_at, created_at
+        client_payment_verified, verdict, quality, reason,
+        fixed_amount, fixed_amount_max, fixed_currency, hourly_min, hourly_max, hourly_budget_type,
+        engagement_weeks, posted_at, client_country_code, client_timezone, client_billing_type,
+        last_client_activity, has_bids, bid_min_rate, bid_avg_rate, bid_max_rate, invites_sent,
+        total_invited_to_interview, total_hired, total_offered, total_unanswered_invites,
+        attachments_count, attachments_filenames, token_cost_inr, cache_status,
+        ingested_at, created_at
       ) values (
         ${upworkId}, ${title}, ${s(body.description)}, ${s(body.url)}, ${skills}::text[],
         ${s(body.budget_text)}, ${s(body.contract_type)}, ${s(body.experience_level)},
         ${connects}, ${s(body.client_country)}, ${s(body.client_city)}, ${s(body.client_spend)},
-        ${paymentVerified}, ${verdict}::job_verdict, ${quality}, ${reason}, now(), now()
+        ${paymentVerified}, ${verdict}::job_verdict, ${quality}, ${reason},
+        ${num(body.fixed_amount)}, ${num(body.fixed_amount_max)}, ${s(body.fixed_currency)},
+        ${num(body.hourly_min)}, ${num(body.hourly_max)}, ${s(body.hourly_budget_type)},
+        ${int(body.engagement_weeks)}, ${ts(body.posted_at)}::timestamptz, ${s(body.client_country_code)},
+        ${s(body.client_timezone)}, ${s(body.client_billing_type)}, ${ts(body.last_client_activity)}::timestamptz,
+        ${bool(body.has_bids)}, ${num(body.bid_min_rate)}, ${num(body.bid_avg_rate)}, ${num(body.bid_max_rate)},
+        ${int(body.invites_sent)}, ${int(body.total_invited_to_interview)}, ${int(body.total_hired)},
+        ${int(body.total_offered)}, ${int(body.total_unanswered_invites)}, ${int(body.attachments_count)},
+        ${s(body.attachments_filenames)}, ${num(body.token_cost_inr)}, ${s(body.cache_status)},
+        now(), now()
       )
       returning id
     `) as Array<{ id: string }>;

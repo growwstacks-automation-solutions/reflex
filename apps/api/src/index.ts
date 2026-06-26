@@ -7,6 +7,9 @@ import { board } from "./board";
 import { checkJobs } from "./check";
 import { reps, assignJob } from "./assign";
 import { addJob } from "./addJob";
+import { matchAssets } from "./matchAssets";
+import { classify, type ClassifyJob } from "./classify";
+import { authUser } from "./auth";
 
 export interface Env {
   // Secrets (NOT in wrangler.toml): .dev.vars locally, `wrangler secret put` in prod.
@@ -38,6 +41,7 @@ export default {
     if (route === "POST /generate") return generateHandler(req, env);
     if (route === "POST /jobs/check") return checkJobs(req, env);
     if (route === "POST /jobs/add") return addJob(req, env);
+    if (route === "POST /jobs/classify") return classifyHandler(req, env);
     return json({ error: "Not found." }, 404);
   },
 };
@@ -78,6 +82,10 @@ async function generateHandler(req: Request, env: Env): Promise<Response> {
       if (!env.DATABASE_URL) {
         return json({ error: "Server misconfigured: DATABASE_URL is not set (real mode)." }, 500);
       }
+
+      // 1. Match work samples first (upserts jobs.looms / jobs.image_links). Non-fatal.
+      await runAssetMatch(env.DATABASE_URL, body.job_id);
+      // 2. Fetch the job (now reads the freshly-matched looms/image_links) — unchanged.
       const found = await fetchJob(env.DATABASE_URL, body.job_id, overrides);
       if (!found) return json({ error: `Job not found: ${body.job_id}` }, 404);
       job = found;
@@ -106,5 +114,54 @@ async function generateHandler(req: Request, env: Env): Promise<Response> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return json({ error: `Generation failed: ${message}` }, 500);
+  }
+}
+
+/**
+ * Score loom_videos + knowledge_base against the job and upsert the top picks onto
+ * jobs.looms / jobs.image_links. Non-fatal: a matching failure is logged but must not
+ * block proposal generation (the proposal proceeds with whatever assets the job has).
+ */
+async function runAssetMatch(databaseUrl: string, jobId: string): Promise<void> {
+  try {
+    const m = await matchAssets(databaseUrl, jobId);
+    console.log("[matchAssets]", jobId, m.skipped ? "skipped (already matched)" : m.debug,
+      "looms:", m.looms.length, "images:", m.image_links.length);
+  } catch (err) {
+    console.warn("[matchAssets] failed:", err instanceof Error ? err.message : String(err));
+  }
+}
+
+// POST /jobs/classify — run the GrowwStacks relevance classifier on a captured (not-yet-added)
+// job. Auth-gated; no DB write here — the extension shows the result, then /jobs/add persists
+// verdict/quality/reason + token_cost_inr + cache_status when the rep confirms.
+async function classifyHandler(req: Request, env: Env): Promise<Response> {
+  if (!env.ANTHROPIC_API_KEY) {
+    return json({ error: "Server misconfigured: ANTHROPIC_API_KEY is not set." }, 500);
+  }
+  const claims = await authUser(req, env);
+  if (!claims) return json({ error: "Unauthorized" }, 401);
+
+  let job: ClassifyJob;
+  try {
+    job = (await req.json()) as ClassifyJob;
+  } catch {
+    return json({ error: "Body must be JSON." }, 400);
+  }
+  if (!job.title && !job.description) {
+    return json({ error: "Need at least a title or description to classify." }, 400);
+  }
+
+  const model = env.ANTHROPIC_MODEL || "claude-haiku-4-5";
+  const usdToInr = Number.parseFloat(env.USD_TO_INR || "86") || 86;
+  try {
+    const result = await classify(env.ANTHROPIC_API_KEY, model, job, usdToInr);
+    console.log("[classify]", result.relevance_raw, "/", result.quality_raw,
+      "->", result.verdict, "/", result.quality, "·", result.cache_status,
+      "· ₹", result.cost_inr, "·", result.tokens, "tokens");
+    return json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return json({ error: `Classification failed: ${message}` }, 500);
   }
 }

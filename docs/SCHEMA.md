@@ -50,7 +50,10 @@ historical baseline.** Key columns the app uses:
   `attachments_filenames`
 - work samples (migration `0004`): `looms` (text[] — Loom walkthrough URLs), `image_links`
   (text[] — image/screenshot URLs). The proposal workspace reads these to populate its
-  Work Samples picker; both are arrays (a job can carry several of each).
+  Work Samples picker; both are arrays (a job can carry several of each). **These are a
+  derived cache** — `matchAssets()` (see below) fills them by scoring `loom_videos` +
+  `knowledge_base` against the job. Both NULL = not yet matched; both `{}`/populated =
+  matched (the matcher always writes both together, and skips a job that's already matched).
 
 > **Normalized vs denormalized:** `jobs` carries denormalized `proposal_*`/`picked_by_name`
 > fields (what n8n writes), AND the normalized `job_assignments` + `proposals` tables exist.
@@ -84,6 +87,29 @@ spent), `note`, `created_at`. "Connects left" is a computed/cached balance.
 **`embeddings`** — pgvector. `id`, `source_kind` (`proposal`|`portfolio`), `source_id`,
 `content`, `embedding` (`vector(1536)` — **change dim if you change the embedder**),
 `created_at`. ivfflat index for cosine similarity.
+
+### Work-sample reference tables (source for the asset matcher)
+
+These two tables are the **source library** the n8n workflow and `matchAssets()` score a job
+against to fill `jobs.looms` / `jobs.image_links`. They are populated outside the app (n8n /
+manual upload); the app only **reads** them. ⚠️ Not in `0000_baseline.sql` — they live in the
+live Neon DB; column names below are authoritative for the matcher and must stay in sync.
+
+**`loom_videos`** — Loom walkthrough library. Columns used: `id`, `title`, `new_link`
+(the Loom URL). Matcher scores `title` against the job's keywords; formats matches as
+`"Title — new_link"`.
+
+**`knowledge_base`** — project/screenshot library. Columns used: `id`, `project_id`,
+`use_case`, `description`, `major_apps`, `secondary_apps`, `screenshot_urls` (text[] of image
+URLs). Matcher scores `use_case + description + major_apps + secondary_apps`; pulls
+`screenshot_urls` from the top matches into `image_links` (flat, max 4).
+
+> **`matchAssets()`** (`apps/api/src/matchAssets.ts`) — single-job port of the n8n "Match
+> Resources" node. Called first in `POST /generate`: tokenizes the job's
+> `title/description/reason/skills`, scores both reference tables (platform tokens weighted
+> ×3), keeps the **top 2** of each, and **upserts** the formatted arrays onto the job's
+> `looms` / `image_links`. Idempotent — skips a job whose `looms` and `image_links` are
+> already non-null. The portal UI is unchanged: it still reads the two columns.
 
 ---
 

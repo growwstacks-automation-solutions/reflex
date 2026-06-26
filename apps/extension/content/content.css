@@ -84,6 +84,23 @@
   border:1px solid var(--rfx-border);padding:8px 10px;border-radius:8px}
 #rfx-root .rfx-add-err.hidden{display:none}
 
+/* AI classification card — pinned to the top of the Add form, highlighted */
+#rfx-root .rfx-prop-sec.rfx-add-ai{border:1px solid var(--rfx-indigo);background:var(--rfx-indigo-tint);
+  border-radius:10px;padding:12px 12px 10px}
+#rfx-root .rfx-add-aihead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+#rfx-root .rfx-add-aihead .rfx-section-label{margin:0}
+#rfx-root .rfx-add-aicost{margin:2px 0 8px;font-size:11.5px;font-weight:600;color:var(--rfx-indigo);
+  background:var(--rfx-surface);border:1px solid var(--rfx-indigo);border-radius:7px;padding:6px 9px;line-height:1.45}
+#rfx-root .rfx-add-aicost.hidden{display:none}
+/* AI fields stay blurred until Check relevance fills them */
+#rfx-root .rfx-ai-wrap{position:relative}
+#rfx-root .rfx-ai-fields{transition:filter .2s ease,opacity .2s ease}
+#rfx-root .rfx-ai-fields.rfx-blur{filter:blur(5px);opacity:.6;pointer-events:none;user-select:none}
+/* sharp overlay label, shown only while the fields are blurred (sibling, not a child) */
+#rfx-root .rfx-ai-veil{display:none}
+#rfx-root .rfx-ai-fields.rfx-blur ~ .rfx-ai-veil{display:flex;align-items:center;justify-content:center;
+  position:absolute;inset:0;z-index:2;font-size:12px;font-weight:600;color:var(--rfx-indigo)}
+
 /* ---------- floating launcher ---------- */
 #rfx-launcher {
   position: fixed;
@@ -326,8 +343,18 @@
 #rfx-root .rfx-job-card.rfx-dim { opacity: .6; }
 #rfx-root .rfx-job-title {
   font-size: 14px; font-weight: 600; color: var(--rfx-text); line-height: 1.4;
-  margin: 0 0 12px;
+  margin: 0 0 8px;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+/* Listing tile meta — budget · type, posted date, one-line description */
+#rfx-root .rfx-jt-meta {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 8px;
+}
+#rfx-root .rfx-jt-budget { font-size: 12.5px; font-weight: 600; color: var(--rfx-text); }
+#rfx-root .rfx-jt-posted { font-size: 11.5px; font-weight: 500; color: var(--rfx-text-3); }
+#rfx-root .rfx-jt-desc {
+  font-size: 12px; line-height: 1.5; color: var(--rfx-text-2); margin: 0 0 12px;
+  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden;
 }
 #rfx-root .rfx-job-strip { display: flex; flex-direction: column; gap: 10px; }
 #rfx-root .rfx-jc-pills { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -406,11 +433,17 @@
 /* card action buttons — make Generate / Add unmistakable */
 #rfx-root .rfx-job-card .rfx-tag-gen,
 #rfx-root .rfx-job-card .rfx-tag-add {
-  font-family: var(--rfx-sans); font-size: 12.5px; font-weight: 600;
-  padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+  font-family: var(--rfx-sans); font-weight: 600;
+  border-radius: 8px; border: none; cursor: pointer;
   background: var(--rfx-indigo); color: #fff; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 6px;
   box-shadow: 0 2px 6px rgba(79,70,229,0.30);
+}
+#rfx-root .rfx-job-card .rfx-tag-gen { font-size: 12.5px; padding: 8px 16px; }
+/* Add is the smaller, secondary action on a not-yet-synced card */
+#rfx-root .rfx-job-card .rfx-tag-add {
+  font-size: 11.5px; padding: 5px 11px; border-radius: 7px;
+  box-shadow: 0 1px 3px rgba(79,70,229,0.25);
 }
 #rfx-root .rfx-job-card .rfx-tag-gen:hover,
 #rfx-root .rfx-job-card .rfx-tag-add:hover { background: var(--rfx-indigo-press); }
