@@ -2,14 +2,16 @@ import { generate } from "./generate";
 import { costInr } from "./pricing";
 import { STUB_JOB, applyOverrides, fetchJob, type JobInput, type JobOverrides } from "./job";
 import { CORS, json } from "./http";
-import { login } from "./auth";
+import { login, authUser } from "./auth";
 import { board } from "./board";
 import { checkJobs } from "./check";
 import { reps, assignJob } from "./assign";
 import { addJob } from "./addJob";
 import { matchAssets } from "./matchAssets";
 import { classify, type ClassifyJob } from "./classify";
-import { authUser } from "./auth";
+import { persistProposalDraft } from "./saveProposal";
+import { proposalDraft } from "./proposalDraft";
+import { fillLoomPlaceholders } from "./looms";
 
 export interface Env {
   // Secrets (NOT in wrangler.toml): .dev.vars locally, `wrangler secret put` in prod.
@@ -40,6 +42,7 @@ export default {
     if (route === "POST /jobs/assign") return assignJob(req, env);
     if (route === "POST /generate") return generateHandler(req, env);
     if (route === "POST /jobs/check") return checkJobs(req, env);
+    if (route === "POST /jobs/proposal") return proposalDraft(req, env);
     if (route === "POST /jobs/add") return addJob(req, env);
     if (route === "POST /jobs/classify") return classifyHandler(req, env);
     return json({ error: "Not found." }, 404);
@@ -50,6 +53,11 @@ async function generateHandler(req: Request, env: Env): Promise<Response> {
   if (!env.ANTHROPIC_API_KEY) {
     return json({ error: "Server misconfigured: ANTHROPIC_API_KEY is not set." }, 500);
   }
+
+  // Auth-gated: we record the draft against the signed-in rep (proposals.user_id) so it can be
+  // reused instead of re-generated. Stub mode still works without a DB, but the rep must be signed in.
+  const claims = await authUser(req, env);
+  if (!claims) return json({ error: "Unauthorized" }, 401);
 
   let body: GenerateBody;
   try {
@@ -92,12 +100,36 @@ async function generateHandler(req: Request, env: Env): Promise<Response> {
     }
 
     const { proposal, usage } = await generate(env.ANTHROPIC_API_KEY, model, MAX_TOKENS, job);
+
+    // The model emits two loom PLACEHOLDERS in the cover letter; substitute the real matched
+    // looms (jobs.looms, top 2) here so the rep copies a letter with working links. Done before
+    // persist + response so both carry the final text.
+    proposal.cover_letter = fillLoomPlaceholders(proposal.cover_letter, job.looms ?? []);
+
     const { cost_inr } = costInr(model, usage, usdToInr);
     const tokens =
       usage.input_tokens +
       usage.output_tokens +
       usage.cache_creation_input_tokens +
       usage.cache_read_input_tokens;
+
+    // Persist the draft so the rep can reuse it instead of regenerating. Real mode only (stub
+    // has no DB row to attach to). Non-fatal: a write failure logs but still returns the proposal.
+    if (!stub && env.DATABASE_URL) {
+      await persistProposalDraft(
+        env.DATABASE_URL,
+        body.job_id,
+        claims.sub,
+        proposal.cover_letter,
+        cost_inr,
+        tokens,
+        proposal.screening_answers,
+        job.image_links ?? [],
+        job.looms ?? [],
+      ).catch((err) =>
+        console.warn("[persistProposalDraft] failed:", err instanceof Error ? err.message : String(err)),
+      );
+    }
 
     return json({
       ...proposal,

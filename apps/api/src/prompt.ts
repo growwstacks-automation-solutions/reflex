@@ -60,9 +60,12 @@ export function buildPrompt(job: JobInput): BuiltPrompt {
       .replace("{{SCREENING_QUESTIONS}}", screening)
       .replace("{{PAST_WINNERS}}", "(none — retrieval not wired yet)") +
     // Re-state the load-bearing constraints in case they were stripped as comments above.
+    // (Matches the template's OUTPUT CONTRACT: the cover letter's Loom links are placeholders
+    // filled externally, while portfolio_recommendations are picked from the portfolio index.)
     "\n\nReturn ONLY the JSON object — no markdown, no fences. Give exactly one screening_answers " +
-    "entry per screening question above (empty array if there were none), and at most 4 " +
-    "portfolio_recommendations (best-fit items from the index).";
+    "entry per screening question above (empty array if there were none). Return up to 4 " +
+    "portfolio_recommendations (best-fit items from the portfolio index). Keep the two loom lines " +
+    "verbatim as [LOOM_TITLE_1] — [LOOM_LINK_1] and [LOOM_TITLE_2] — [LOOM_LINK_2], with a short lead-in line.";
 
   return { system, user };
 }

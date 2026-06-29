@@ -248,6 +248,9 @@
 .rfx-btn.full { width: 100%; }
 .rfx-btn.sm { font-size: 12px; padding: 6px 10px; }
 .rfx-btn:disabled { opacity: .55; cursor: default; }
+/* Anchor styled as a button (e.g. "Apply on Upwork" — a real link, not scripted navigation). */
+a.rfx-btn { text-decoration: none; box-sizing: border-box; }
+a.rfx-btn.primary:hover { color: #fff; }
 
 /* token cost */
 .rfx-cost { font-family: var(--rfx-mono); font-size: 11.5px; color: var(--rfx-text-3); }

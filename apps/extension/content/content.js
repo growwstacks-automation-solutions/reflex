@@ -125,12 +125,15 @@
   let rfxGenJobId = "";     // the job the current proposal draft is for
   let rfxGenResult = null;  // the /generate response (cover letter, answers, portfolio recs, cost)
   let rfxGenError = "";     // last generation error message
+  let rfxGenSubmitted = false; // true when the shown proposal was already submitted on Upwork (locks Regenerate)
+  let rfxDraftCheckedFor = ""; // job id we've already tried to restore a saved draft for (dedupes the fetch)
   let rfxAuth = null;       // { token, user } from the background (signed-in rep), or null
   let rfxAddData = null;    // captured job under review in the "Add to Reflex" card
   let rfxAddOpen = false;   // true while the Add review card is showing (suppresses mirror re-render)
   let rfxAddClass = null;   // last /jobs/classify result for the card { token_cost_inr, cache_status, tokens }
   let rfxAddSaved = false;  // true once the open Add card has been persisted (dedupes save-on-leave)
   let rfxAwaitOpenForAdd = null; // jobId the rep wants to add from the listing — waiting for them to open it
+  let rfxAwaitOpenForGen = null; // jobId the rep wants to generate for from the listing — waiting for them to open it
 
   /* ---------- build launcher ---------- */
   const launcher = document.createElement("button");
@@ -184,7 +187,8 @@
     refreshAuth(() => {
       if (rfxAuth && rfxAuth.token) {
         if (isApplyPage()) {
-          surface = "proposal";                 // on the apply page -> Proposal tab
+          surface = "job";                      // apply page -> Job tab (Proposal tab merged in)
+          rfxLastOpenId = openJobNumericId();
         } else {
           const openId = openJobNumericId();
           if (openId) { surface = "job"; rfxLastOpenId = openId; } // a job is open -> show it
@@ -201,6 +205,7 @@
   function render() {
     rfxAddOpen = false;          // any full render leaves the Add review card
     rfxAwaitOpenForAdd = null;   // ...and clears the "open the job first" prompt
+    rfxAwaitOpenForGen = null;   // ...for both the Add and Generate "open the job first" prompts
     updateAuthChrome(); // header user line + footer (signed-in name lives at the bottom)
     root.querySelectorAll(".rfx-tab").forEach(t =>
       t.classList.toggle("rfx-active", t.dataset.s === surface));
@@ -268,6 +273,8 @@
     rfxLooms = [];
     selectedAssets = new Set();
     rfxGenError = "";
+    rfxGenSubmitted = false;       // a fresh generate produces a draft, not a submitted proposal
+    rfxDraftCheckedFor = rfxGenJobId; // we're (re)generating this job — don't also restore over it
     if (!stay) surface = "proposal";
     render();
     if (stay) scrollToJobProposal();
@@ -308,6 +315,51 @@
         });
       } catch (e) { resolve({ error: String(e) }); }
     });
+  }
+
+  // Ask the background worker to POST /jobs/proposal — the stored draft for one job.
+  // Resolves to { drafted, submitted, cover_letter, screening_answers, looms, image_links } or { error }.
+  function apiProposalDraft(jobId) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "PROPOSAL_DRAFT", payload: { job_id: jobId } }, (resp) => {
+          if (chrome.runtime.lastError || !resp) {
+            resolve({ error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || "No response from background" });
+            return;
+          }
+          resolve(resp);
+        });
+      } catch (e) { resolve({ error: String(e) }); }
+    });
+  }
+
+  // If this job already has a saved proposal draft, RESTORE it into the panel instead of
+  // re-generating (saves the model call/cost). Best-effort: any failure leaves the normal
+  // "Generate" CTA in place. Deduped per job via rfxDraftCheckedFor; skips when a proposal is
+  // already showing/in-flight for this job.
+  async function maybeRestoreDraft(jobId) {
+    if (!jobId) return;
+    if (rfxGenJobId === jobId && rfxGenState !== "idle") return; // already showing/generating for this job
+    if (rfxDraftCheckedFor === jobId) return;                    // already checked this job this session
+    rfxDraftCheckedFor = jobId;
+    const resp = await apiProposalDraft(jobId);
+    if (!resp || resp.error || !resp.drafted || !resp.cover_letter) return;
+    // Another job may have opened while we were fetching — only apply if it's still relevant.
+    if (rfxDraftCheckedFor !== jobId) return;
+    if (rfxGenJobId === jobId && rfxGenState === "ready") return; // a fresh generate beat us to it
+    rfxGenJobId = jobId;
+    rfxGenResult = {
+      cover_letter: resp.cover_letter,
+      screening_answers: Array.isArray(resp.screening_answers) ? resp.screening_answers : [],
+      portfolio_recommendations: [], // recs aren't persisted — Regenerate reproduces them
+      client_name_used: null,
+    };
+    rfxAssets = buildAssets(Array.isArray(resp.image_links) ? resp.image_links : []);
+    rfxLooms = (Array.isArray(resp.looms) ? resp.looms : []).map(parseLoom);
+    selectedAssets = new Set(rfxAssets.map((_, i) => i));
+    rfxGenState = "ready";
+    rfxGenSubmitted = !!resp.submitted;
+    if (surface === "job") render();
   }
 
   // Screening question texts on the current page (apply page). Empty elsewhere.
@@ -628,6 +680,30 @@
     if (cancel) cancel.addEventListener("click", () => { rfxAwaitOpenForAdd = null; render(); });
   }
 
+  // Listing Generate: like Add, we need the open job's context (screening questions, client
+  // facts) to generate a good proposal. Ask the rep to open it on Upwork first; the mirror then
+  // auto-switches to the Job tab and kicks off generation there (inline below the card).
+  function renderGenJobPrompt(title) {
+    return `
+      <div class="rfx-context-note">To generate a proposal, ${SYSTEM_NAME} needs the open job — open it on Upwork first.</div>
+      <div class="rfx-authgate">
+        <div class="rfx-authgate-ic">✦</div>
+        <div class="rfx-authgate-t">
+          <b>Open the job first</b>
+          <span>Click <b>${esc(title || "this job")}</b> on Upwork to open it. ${SYSTEM_NAME} will switch to the <b>Job</b> tab and generate the proposal there automatically.</span>
+        </div>
+        <button class="rfx-btn ghost full rfx-mt" data-openprompt-cancel>Back to listing</button>
+      </div>`;
+  }
+
+  function promptOpenJobToGenerate(jobId, title) {
+    rfxAwaitOpenForGen = jobId;
+    const body = root.querySelector("#rfx-body");
+    body.innerHTML = renderGenJobPrompt(title);
+    const cancel = body.querySelector("[data-openprompt-cancel]");
+    if (cancel) cancel.addEventListener("click", () => { rfxAwaitOpenForGen = null; render(); });
+  }
+
   function openAddReview(jobId, fallbackTitle) {
     if (!jobId) return;
     rfxAddData = collectAddData(jobId, fallbackTitle);
@@ -920,7 +996,7 @@
 
   // The strip inside each sidebar card — same signals as the old tile strip, laid
   // out for the narrow panel (pills wrap, chips truncate, action on its own row).
-  function listCardInner(data, jobTab) {
+  function listCardInner(data, jobTab, jobId) {
     if (data.checking) {
       return `<div class="rfx-jc-line"><span class="rfx-spin dark"></span><span class="rfx-jc-note">${SYSTEM_NAME} · checking…</span></div>`;
     }
@@ -946,11 +1022,27 @@
       : data.ownership === "other"
         ? `<span class="rfx-tag-own other">Assigned · ${esc(data.owner || "")}</span>`
         : `<span class="rfx-tag-own skip">Available</span>`;
-    const action = data.verdict === "irr"
-      ? `<span class="rfx-tag-skip">Not pursued</span>`
-      : (data.actioned === "generated" || data.actioned === "submitted")
-        ? `<button class="rfx-tag-gen quiet" data-card-regen>↻ Proposal generated</button>`
-        : `<button class="rfx-tag-gen" data-card-gen><span class="rfx-spark">✦</span> Generate</button>`;
+    // Live generation state for THIS job (beats the DB check, which lags a fresh generate).
+    const liveGenerating = jobId && rfxGenJobId === jobId && rfxGenState === "generating";
+    const liveReady = jobId && rfxGenJobId === jobId && rfxGenState === "ready";
+    const isGenerated = data.actioned === "generated" || liveReady;
+    let action;
+    if (data.verdict === "irr") {
+      action = `<span class="rfx-tag-skip">Not pursued</span>`;
+    } else if (data.actioned === "submitted") {
+      // Already submitted on Upwork — locked (no regenerate).
+      action = `<span class="rfx-tag-own mine">Proposal submitted ✓</span>`;
+    } else if (liveGenerating) {
+      action = `<button class="rfx-tag-gen" disabled><span class="rfx-spin"></span> Generating…</button>`;
+    } else if (isGenerated) {
+      // On the Job tab the proposal is shown inline below with its own Regenerate, so the card
+      // button is just a disabled "generated" marker. On the listing it stays clickable to act.
+      action = jobTab
+        ? `<button class="rfx-tag-gen" disabled title="Use Regenerate in the cover letter below"><span class="rfx-spark">✦</span> Proposal generated</button>`
+        : `<button class="rfx-tag-gen quiet" data-card-regen>↻ Proposal ready</button>`;
+    } else {
+      action = `<button class="rfx-tag-gen" data-card-gen><span class="rfx-spark">✦</span> Generate</button>`;
+    }
     return `<div class="rfx-jc-pills">${rel}${quality}</div>${chips}<div class="rfx-jc-foot">${own}<span class="rfx-jc-spacer"></span>${action}</div>`;
   }
 
@@ -970,7 +1062,7 @@
         <div class="rfx-job-title">${esc(job.title)}</div>
         ${metaRow}
         ${desc}
-        <div class="rfx-job-strip">${listCardInner(data)}</div>
+        <div class="rfx-job-strip">${listCardInner(data, false, job.jobId)}</div>
       </div>`;
   }
 
@@ -1008,9 +1100,15 @@
     const gen = card.querySelector("[data-card-gen]:not([disabled]), [data-card-regen]");
     if (gen) gen.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
-      // Job tab: keep the proposal inline below the card. Listing: switch to the Proposal tab.
-      if (jobTab) startGeneration(jobId, { stay: true });
-      else startGeneration(jobId);
+      const titleEl = card.querySelector(".rfx-job-title");
+      const title = titleEl ? titleEl.textContent : "";
+      // Generation needs the OPEN job's context (screening questions, client facts). If this card
+      // is the job open on Upwork, generate now inline on the Job tab. Otherwise (a listing card
+      // for a job that isn't open) ask the rep to open it first — like Add; the mirror then
+      // switches to the Job tab and kicks off generation there.
+      const open = readOpenJob();
+      if (open && open.id === jobId) { surface = "job"; startGeneration(jobId, { stay: true }); }
+      else promptOpenJobToGenerate(jobId, title);
     });
   }
 
@@ -1049,7 +1147,7 @@
       const data = (id && rfxJobCache[id]) ||
         (id ? { connected: true, checking: true } : { connected: false });
       const strip = card.querySelector(".rfx-job-strip");
-      if (strip) { strip.innerHTML = listCardInner(data); wireListCard(card, id); }
+      if (strip) { strip.innerHTML = listCardInner(data, false, id); wireListCard(card, id); }
       card.classList.toggle("rfx-dim", !!(data.connected && data.verdict === "irr"));
     });
   }
@@ -1064,6 +1162,7 @@
       return `<div class="rfx-context-note">Open a job on Upwork — click any job to view it — and its ${SYSTEM_NAME} details will appear here, with its strip from the database.</div>`;
     }
     scheduleJobFetch(open.id);
+    maybeRestoreDraft(open.id); // restore a saved draft (no model call) if one exists for this job
     const data = (open.id && rfxJobCache[open.id]) ||
       (open.id ? { connected: true, checking: true } : { connected: false });
     const dim = data.connected && data.verdict === "irr" ? " rfx-dim" : "";
@@ -1089,11 +1188,11 @@
       <div class="rfx-job-card${dim}" data-rfx-jobtab="${esc(open.id)}">
         <div class="rfx-job-title" style="-webkit-line-clamp:3">${esc(open.title)}</div>
         ${metaRow}
-        <div class="rfx-job-strip">${listCardInner(data, true)}</div>
+        <div class="rfx-job-strip">${listCardInner(data, true, open.id)}</div>
         ${meta ? `<div class="rfx-jc-stats">${meta}</div>` : ""}
         ${stats ? `<div class="rfx-jc-stats">${stats}</div>` : ""}
         ${open.description ? `<div class="rfx-jobdesc">${esc(open.description)}</div>` : ""}
-        ${open.cipher ? `<button class="rfx-btn primary full rfx-mt" data-apply="${esc(applyUrlFor(open.cipher))}">Apply on Upwork →</button>` : ""}
+        ${open.cipher ? `<a class="rfx-btn primary full rfx-mt rfx-apply-link" href="${esc(applyUrlFor(open.cipher))}" target="_blank" rel="noopener">Apply on Upwork →</a>` : ""}
       </div>
       ${propSection}
     `;
@@ -1235,7 +1334,7 @@
     const data = (id && rfxJobCache[id]) ||
       (id ? { connected: true, checking: true } : { connected: false });
     const strip = card.querySelector(".rfx-job-strip");
-    if (strip) { strip.innerHTML = listCardInner(data, true); wireListCard(card, id); }
+    if (strip) { strip.innerHTML = listCardInner(data, true, id); wireListCard(card, id); }
     card.classList.toggle("rfx-dim", !!(data.connected && data.verdict === "irr"));
   }
 
@@ -1354,7 +1453,9 @@
         <textarea class="rfx-edit" id="rfx-cover">${esc(coverText)}</textarea>
         <div class="rfx-between rfx-mt">
           <span class="rfx-cost"></span>
-          <button class="rfx-btn ghost sm" data-gen-proposal>↻ Regenerate</button>
+          ${rfxGenSubmitted
+            ? `<span class="rfx-tag-own mine" title="This proposal was already submitted on Upwork — regenerate is locked.">Submitted ✓</span>`
+            : `<button class="rfx-btn ghost sm" data-gen-proposal>↻ Regenerate</button>`}
         </div>
         <button class="rfx-btn primary full rfx-mt" data-copy="#rfx-cover">Copy cover letter</button>
       </div>
@@ -1553,9 +1654,8 @@
     const jc = body.querySelector("[data-rfx-jobtab]");
     if (jc) wireListCard(jc, jc.getAttribute("data-rfx-jobtab"));
 
-    // job tab: Apply -> open Upwork's apply page in a new tab (Proposal tab auto-opens there)
-    const ap = body.querySelector("[data-apply]");
-    if (ap) ap.addEventListener("click", () => window.open(ap.getAttribute("data-apply"), "_blank", "noopener"));
+    // job tab: "Apply on Upwork" is a plain <a href> (the apply URL built from the open job's
+    // URL). The rep clicks the link themselves — no scripted navigation/automation here.
 
     // listing add
     body.querySelectorAll("[data-add]").forEach(b =>
@@ -2353,10 +2453,18 @@
           if (openNow) { rfxAwaitOpenForAdd = null; rfxLastOpenId = openNow; surface = "job"; render(); }
           return;
         }
-        // on the apply page, switch to Proposal once (don't re-render it after, so
-        // the rep's edits/selections aren't wiped by Upwork's DOM churn).
+        // Same, but the rep clicked Generate from the listing: switch to the Job tab and kick off
+        // generation inline once they open the job.
+        if (rfxAwaitOpenForGen) {
+          const openNow = openJobNumericId();
+          if (openNow) { rfxAwaitOpenForGen = null; rfxLastOpenId = openNow; surface = "job"; startGeneration(openNow, { stay: true }); }
+          return;
+        }
+        // The apply page maps to the Job tab (Proposal tab was merged in). Switch from the
+        // listing once; once we're on the Job tab, DON'T re-render on later DOM churn so the
+        // rep's inline cover-letter edits / sample picks aren't wiped.
         if (isApplyPage()) {
-          if (surface === "listing" || surface === "job") { surface = "proposal"; render(); }
+          if (surface === "listing") { surface = "job"; rfxLastOpenId = openJobNumericId(); render(); }
           return;
         }
         const openId = openJobNumericId();

@@ -54,6 +54,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         .then((data) => sendResponse(data))
         .catch((e) => sendResponse({ error: errMsg(e) }));
       return true;
+    case "PROPOSAL_DRAFT":
+      proposalDraft(msg.payload || {})
+        .then((data) => sendResponse(data))
+        .catch((e) => sendResponse({ error: errMsg(e) }));
+      return true;
     // TODO(backend): SUGGEST_REPLY.
     default:
       return false;
@@ -182,6 +187,19 @@ async function fetchAsset(url) {
     binary += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
   }
   return { ok: true, base64: btoa(binary), contentType, bytes: buf.length };
+}
+
+// POST a job id to the Worker; returns the stored proposal draft for that job (or
+// { drafted:false } if none) so the extension can RESTORE it instead of re-generating.
+async function proposalDraft(payload) {
+  const res = await fetch(`${API_BASE}/jobs/proposal`, {
+    method: "POST",
+    headers: await authHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data && data.error ? data.error : `PROPOSAL_DRAFT ${res.status}`);
+  return data;
 }
 
 // POST the visible job ids to the Worker; returns { [jobId]: status }.

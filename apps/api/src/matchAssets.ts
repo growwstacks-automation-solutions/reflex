@@ -182,7 +182,7 @@ export async function matchAssets(databaseUrl: string, jobId: string): Promise<M
     .filter(Boolean);
 
   // -- image_links column: flat screenshot URLs from the top KB rows, max 4 --
-  const image_links = topKB.flatMap((kb) => toArrayText(kb.screenshot_urls)).slice(0, 4);
+  const image_links = topKB.flatMap((kb) => toArrayText(kb.screenshot_urls)).slice(0, 10);
 
   // -- upsert onto the job row (matches by uuid or upwork id) --
   await sql`

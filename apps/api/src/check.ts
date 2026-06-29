@@ -9,8 +9,14 @@ import { json } from "./http";
  *
  * Response: { statuses: { [upwork_job_id]: {
  *   connected, inReflex, verdict: "rel"|"rev"|"irr", quality: "good"|"medium"|"poor",
- *   chips, ownership: "mine"|"other"|"available", owner, actioned: "none"|"submitted"
+ *   chips, ownership: "mine"|"other"|"available", owner,
+ *   actioned: "none"|"generated"|"submitted", drafted: bool, submitted: bool
  * } } }
+ *
+ * `drafted` = a Reflex-generated proposal draft exists for this job (so the extension restores it
+ * instead of re-generating). `submitted` = it was actually sent on Upwork (drafts gate the model;
+ * a submitted proposal locks Regenerate). Lightweight flags only — the full draft text is fetched
+ * per-job via POST /jobs/proposal.
  */
 const VERDICT_MAP: Record<string, string> = {
   relevant: "rel",
@@ -38,11 +44,14 @@ export async function checkJobs(req: Request, env: { DATABASE_URL: string }): Pr
         j.quality,
         j.picked_by_name,
         j.proposal_submitted_at,
+        p.id                     as proposal_id,
+        p.submitted_at           as draft_submitted_at,
         t.name                   as tool,
         uc.name                  as use_case,
         d.name                   as department,
         ind.name                 as industry
       from jobs j
+      left join proposals   p   on p.job_id = j.id
       left join tools       t   on t.id   = j.tool_id
       left join use_cases   uc  on uc.id  = j.use_case_id
       left join departments d   on d.id   = j.department_id
@@ -55,6 +64,10 @@ export async function checkJobs(req: Request, env: { DATABASE_URL: string }): Pr
       const id = String(r.upwork_job_id);
       const owner = (r.picked_by_name as string) || "";
       const chips = [r.tool, r.use_case, r.department, r.industry].filter(Boolean).join(" · ");
+      // A Reflex draft exists if a proposals row is joined. "Submitted" = sent on Upwork —
+      // either the normalized proposals.submitted_at OR the denormalized jobs mirror (n8n).
+      const drafted = !!r.proposal_id;
+      const submitted = !!(r.draft_submitted_at || r.proposal_submitted_at);
       statuses[id] = {
         connected: true,
         inReflex: true,
@@ -65,7 +78,9 @@ export async function checkJobs(req: Request, env: { DATABASE_URL: string }): Pr
         // TODO(auth): compare picked_by_name to the logged-in user for "mine".
         ownership: owner ? "other" : "available",
         owner: owner || undefined,
-        actioned: r.proposal_submitted_at ? "submitted" : "none",
+        actioned: submitted ? "submitted" : drafted ? "generated" : "none",
+        drafted,
+        submitted,
       };
     }
     return json({ statuses }, 200);
