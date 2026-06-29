@@ -67,7 +67,9 @@ Partial unique index `one_live_assignment_per_job` on `(job_id) WHERE released_a
 
 **`proposals`** — the ACTION. `id`, `job_id`, `user_id`, `cover_letter`, `token_cost_inr`,
 `tokens`, **`submitted_at`** (NULL = drafted, not yet submitted on Upwork — this is what the
-release clock checks), `created_at`, `updated_at`. Unique index `one_proposal_per_job`.
+release clock checks), `created_at`, `updated_at`, **`portfolio_recommendations`** (`jsonb`,
+migration `0006` — the AI's suggested points `[{title,page,position,why}]`, so they restore
+with the draft). Unique index `one_proposal_per_job`.
 **Written by `POST /generate`** (`saveProposal.ts`) — UPSERTed by `job_id` so generating creates
 the draft and regenerating overwrites the same row; the extension restores it via
 `POST /jobs/proposal` instead of re-calling the model. `/generate` is auth-gated (records `user_id`).

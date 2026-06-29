@@ -1,5 +1,5 @@
 import { neon } from "@neondatabase/serverless";
-import type { ScreeningAnswer } from "./generate";
+import type { ScreeningAnswer, PortfolioPick } from "./generate";
 import { parseLoom } from "./looms";
 
 /**
@@ -32,6 +32,7 @@ export async function persistProposalDraft(
   screeningAnswers: ScreeningAnswer[],
   imageLinks: string[] = [],
   looms: string[] = [],
+  portfolioRecs: PortfolioPick[] = [],
 ): Promise<void> {
   const sql = neon(databaseUrl);
 
@@ -63,6 +64,21 @@ export async function persistProposalDraft(
       insert into proposal_answers (proposal_id, question, answer)
       values (${proposalId}, ${a.question}, ${a.answer ?? ""})
     `;
+  }
+
+  // Persist the AI's suggested portfolio points so they restore with the draft. Guarded: if the
+  // portfolio_recommendations column (migration 0006) isn't applied, the core save already
+  // succeeded — we just log and skip (fresh generates still show them from the model response).
+  try {
+    await sql`
+      update proposals set portfolio_recommendations = ${JSON.stringify(portfolioRecs || [])}::jsonb
+      where id = ${proposalId}
+    `;
+  } catch (err) {
+    console.warn(
+      "[persistProposalDraft] portfolio recs skipped:",
+      err instanceof Error ? err.message : String(err),
+    );
   }
 
   // Snapshot the matched attachments into assets + proposal_assets (the M:N link). Wrapped in

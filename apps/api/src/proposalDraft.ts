@@ -9,7 +9,7 @@ import { json } from "./http";
  *
  * Body: { job_id }  (upwork_job_id or internal uuid)
  * Response: { drafted, submitted, cover_letter, screening_answers: [{question, answer}],
- *             token_cost_inr, tokens, updated_at, looms, image_links }
+ *             token_cost_inr, tokens, updated_at, looms, image_links, portfolio_recommendations }
  * Attachments come from the proposal's LINKED assets (proposal_assets → assets) — the exact
  * set snapshotted at generation. If a draft predates the linking (no proposal_assets rows), we
  * fall back to the job's cached jobs.looms / jobs.image_links so older drafts still show samples.
@@ -79,6 +79,20 @@ export async function proposalDraft(req: Request, env: { DATABASE_URL: string })
       where pa.proposal_id = ${proposalId}
     `) as Array<{ kind: string; label: string; url: string }>;
 
+    // Suggested portfolio points (migration 0006). Guarded select so restore still works if the
+    // column isn't applied yet — we just return an empty list in that case.
+    let portfolio_recommendations: unknown[] = [];
+    try {
+      const pr = (await sql`
+        select portfolio_recommendations from proposals where id = ${proposalId}
+      `) as Array<{ portfolio_recommendations: unknown }>;
+      const raw = pr[0] && pr[0].portfolio_recommendations;
+      if (Array.isArray(raw)) portfolio_recommendations = raw;
+      else if (typeof raw === "string" && raw.trim()) portfolio_recommendations = JSON.parse(raw);
+    } catch {
+      portfolio_recommendations = [];
+    }
+
     let image_links: string[];
     let looms: string[];
     if (linked.length > 0) {
@@ -103,6 +117,7 @@ export async function proposalDraft(req: Request, env: { DATABASE_URL: string })
         updated_at: r.updated_at ?? null,
         looms,
         image_links,
+        portfolio_recommendations,
       },
       200,
     );

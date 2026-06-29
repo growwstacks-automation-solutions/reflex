@@ -126,6 +126,7 @@ async function generateHandler(req: Request, env: Env): Promise<Response> {
         proposal.screening_answers,
         job.image_links ?? [],
         job.looms ?? [],
+        proposal.portfolio_recommendations ?? [],
       ).catch((err) =>
         console.warn("[persistProposalDraft] failed:", err instanceof Error ? err.message : String(err)),
       );

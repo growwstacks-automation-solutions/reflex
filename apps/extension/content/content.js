@@ -351,7 +351,7 @@
     rfxGenResult = {
       cover_letter: resp.cover_letter,
       screening_answers: Array.isArray(resp.screening_answers) ? resp.screening_answers : [],
-      portfolio_recommendations: [], // recs aren't persisted — Regenerate reproduces them
+      portfolio_recommendations: Array.isArray(resp.portfolio_recommendations) ? resp.portfolio_recommendations : [],
       client_name_used: null,
     };
     rfxAssets = buildAssets(Array.isArray(resp.image_links) ? resp.image_links : []);
@@ -1059,7 +1059,10 @@
     const desc = job.description ? `<div class="rfx-jt-desc">${esc(job.description)}</div>` : "";
     return `
       <div class="rfx-job-card${dim}" data-rfx-card="${esc(job.jobId)}">
-        <div class="rfx-job-title">${esc(job.title)}</div>
+        <div class="rfx-jt-titlerow">
+          <div class="rfx-job-title">${esc(job.title)}</div>
+          <button class="rfx-jt-copy" data-copy-title="${esc(job.title)}" title="Copy job title" aria-label="Copy job title">⧉</button>
+        </div>
         ${metaRow}
         ${desc}
         <div class="rfx-job-strip">${listCardInner(data, false, job.jobId)}</div>
@@ -1192,7 +1195,7 @@
         ${meta ? `<div class="rfx-jc-stats">${meta}</div>` : ""}
         ${stats ? `<div class="rfx-jc-stats">${stats}</div>` : ""}
         ${open.description ? `<div class="rfx-jobdesc">${esc(open.description)}</div>` : ""}
-        ${open.cipher ? `<a class="rfx-btn primary full rfx-mt rfx-apply-link" href="${esc(applyUrlFor(open.cipher))}" target="_blank" rel="noopener">Apply on Upwork →</a>` : ""}
+        ${open.cipher && !isApplyPage() ? `<a class="rfx-btn primary full rfx-mt rfx-apply-link" href="${esc(applyUrlFor(open.cipher))}" target="_blank" rel="noopener">Apply on Upwork →</a>` : ""}
       </div>
       ${propSection}
     `;
@@ -1714,6 +1717,18 @@
     body.querySelectorAll("[data-loom]").forEach(b =>
       b.addEventListener("click", () => copyText(b, b.dataset.loom || "")));
 
+    // listing: copy a job title straight from its card (the literal title is on data-copy-title).
+    // Tiny icon button → use a toast for the confirmation (not a button-label flash).
+    body.querySelectorAll("[data-copy-title]").forEach(b =>
+      b.addEventListener("click", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const title = b.getAttribute("data-copy-title") || "";
+        if (!title) return;
+        writeClipboard(title);
+        b.classList.add("ok"); setTimeout(() => b.classList.remove("ok"), 1200);
+        toast("Title copied ✓");
+      }));
+
     // messages: suggested reply (with generating state)
     const sg = body.querySelector("[data-suggest]");
     if (sg) sg.addEventListener("click", () => {
@@ -1890,6 +1905,25 @@
       if (p && p.then) p.then(done, () => { legacyCopy(text); done(); });
       else { legacyCopy(text); done(); }
     } catch (e) { legacyCopy(text); done(); }
+  }
+  // Copy to clipboard WITHOUT flashing a button (used by tiny icon buttons that can't hold a
+  // confirmation label) — pair it with toast().
+  function writeClipboard(text) {
+    try {
+      const p = navigator.clipboard && navigator.clipboard.writeText(text);
+      if (p && p.then) p.catch(() => legacyCopy(text));
+      else legacyCopy(text);
+    } catch (e) { legacyCopy(text); }
+  }
+  // Small transient confirmation popup anchored to the panel (not to a button).
+  let rfxToastTimer = null;
+  function toast(msg) {
+    let el = root.querySelector(".rfx-toast");
+    if (!el) { el = document.createElement("div"); el.className = "rfx-toast"; root.appendChild(el); }
+    el.textContent = msg;
+    el.classList.add("show");
+    if (rfxToastTimer) clearTimeout(rfxToastTimer);
+    rfxToastTimer = setTimeout(() => { el.classList.remove("show"); }, 1400);
   }
   function handleInsert(btn, scope) {
     const sel = { cover: "#rfx-cover", q: "#rfx-screen", reply: "#rfx-reply" }[btn.dataset.insert];
