@@ -9,7 +9,11 @@ import { json } from "./http";
  *
  * Body: { job_id }  (upwork_job_id or internal uuid)
  * Response: { drafted, submitted, cover_letter, screening_answers: [{question, answer}],
- *             token_cost_inr, tokens, updated_at, looms, image_links, portfolio_recommendations }
+ *             token_cost_inr, tokens, updated_at, looms, image_links, portfolio_recommendations,
+ *             job: { title, description, budget, type, posted } }
+ * `job` (the DB's display facts) is returned whenever the job exists — even with no draft — so the
+ * extension's Job-tab card can show the real title/budget/posted on the apply page (where the
+ * page DOM doesn't expose them).
  * Attachments come from the proposal's LINKED assets (proposal_assets → assets) — the exact
  * set snapshotted at generation. If a draft predates the linking (no proposal_assets rows), we
  * fall back to the job's cached jobs.looms / jobs.image_links so older drafts still show samples.
@@ -42,27 +46,53 @@ export async function proposalDraft(req: Request, env: { DATABASE_URL: string })
 
   try {
     const sql = neon(env.DATABASE_URL);
+    // Start from the JOB (left join the proposal) so we can return the job's display facts even
+    // when there's no draft yet — the extension uses them for the Job-tab card on the apply page,
+    // where the page DOM doesn't expose the real title/budget/posted.
     const rows = (await sql`
       select
+        j.title,
+        j.description,
+        j.budget_text,
+        j.contract_type,
+        j.posted_at,
+        j.proposal_submitted_at,
+        j.looms,
+        j.image_links,
         p.id                     as proposal_id,
         p.cover_letter,
         p.token_cost_inr,
         p.tokens,
         p.submitted_at,
-        p.updated_at,
-        j.proposal_submitted_at,
-        j.looms,
-        j.image_links
-      from proposals p
-      join jobs j on j.id = p.job_id
+        p.updated_at
+      from jobs j
+      left join proposals p on p.job_id = j.id
       where j.upwork_job_id = ${jobId} or j.id::text = ${jobId}
       limit 1
     `) as Array<Record<string, unknown>>;
 
     if (rows.length === 0) {
+      // Job isn't in Reflex at all.
       return json({ drafted: false, submitted: false }, 200);
     }
     const r = rows[0];
+
+    // Job display facts (the card reads these on the apply page). Description is clamped in the UI,
+    // so a 320-char snippet is plenty.
+    const desc = (r.description as string) || "";
+    const job = {
+      title: (r.title as string) || "",
+      description: desc.length > 320 ? desc.slice(0, 320) : desc,
+      budget: (r.budget_text as string) || "",
+      type: (r.contract_type as string) || "",
+      posted: r.posted_at ?? null, // ISO timestamp; the extension formats it
+    };
+
+    // No proposal drafted yet — still hand back the job facts (+ submitted flag from the mirror).
+    if (!r.proposal_id) {
+      return json({ drafted: false, submitted: !!r.proposal_submitted_at, job }, 200);
+    }
+
     const proposalId = r.proposal_id as string;
     const answers = (await sql`
       select question, answer from proposal_answers
@@ -79,19 +109,19 @@ export async function proposalDraft(req: Request, env: { DATABASE_URL: string })
       where pa.proposal_id = ${proposalId}
     `) as Array<{ kind: string; label: string; url: string }>;
 
-    // Suggested portfolio points (migration 0006). Guarded select so restore still works if the
-    // column isn't applied yet — we just return an empty list in that case.
-    let portfolio_recommendations: unknown[] = [];
-    try {
-      const pr = (await sql`
-        select portfolio_recommendations from proposals where id = ${proposalId}
-      `) as Array<{ portfolio_recommendations: unknown }>;
-      const raw = pr[0] && pr[0].portfolio_recommendations;
-      if (Array.isArray(raw)) portfolio_recommendations = raw;
-      else if (typeof raw === "string" && raw.trim()) portfolio_recommendations = JSON.parse(raw);
-    } catch {
-      portfolio_recommendations = [];
-    }
+    // Suggested portfolio points — the `portfolio`-kind links. The synthetic url encodes
+    // page/position ("portfolio://pN/iM"); the label is the sample title.
+    const portfolio_recommendations = linked
+      .filter((a) => a.kind === "portfolio")
+      .map((a) => {
+        const m = String(a.url || "").match(/p(\d+)\/i(\d+)/);
+        return {
+          title: a.label || "",
+          page: m ? Number(m[1]) : null,
+          position: m ? Number(m[2]) : null,
+          why: "",
+        };
+      });
 
     let image_links: string[];
     let looms: string[];
@@ -118,6 +148,7 @@ export async function proposalDraft(req: Request, env: { DATABASE_URL: string })
         looms,
         image_links,
         portfolio_recommendations,
+        job,
       },
       200,
     );

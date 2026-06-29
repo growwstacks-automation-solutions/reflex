@@ -127,6 +127,7 @@
   let rfxGenError = "";     // last generation error message
   let rfxGenSubmitted = false; // true when the shown proposal was already submitted on Upwork (locks Regenerate)
   let rfxDraftCheckedFor = ""; // job id we've already tried to restore a saved draft for (dedupes the fetch)
+  let rfxJobFacts = {};       // jobId -> { title, description, budget, type, posted } from the DB (card fallback on the apply page)
   let rfxAuth = null;       // { token, user } from the background (signed-in rep), or null
   let rfxAddData = null;    // captured job under review in the "Add to Reflex" card
   let rfxAddOpen = false;   // true while the Add review card is showing (suppresses mirror re-render)
@@ -339,14 +340,19 @@
   // already showing/in-flight for this job.
   async function maybeRestoreDraft(jobId) {
     if (!jobId) return;
-    if (rfxGenJobId === jobId && rfxGenState !== "idle") return; // already showing/generating for this job
-    if (rfxDraftCheckedFor === jobId) return;                    // already checked this job this session
+    if (rfxDraftCheckedFor === jobId) return;                    // already fetched this job this session
     rfxDraftCheckedFor = jobId;
     const resp = await apiProposalDraft(jobId);
-    if (!resp || resp.error || !resp.drafted || !resp.cover_letter) return;
-    // Another job may have opened while we were fetching — only apply if it's still relevant.
-    if (rfxDraftCheckedFor !== jobId) return;
-    if (rfxGenJobId === jobId && rfxGenState === "ready") return; // a fresh generate beat us to it
+    if (!resp || resp.error) { rfxDraftCheckedFor = ""; return; } // allow a retry on transient error
+    // Capture the job's DB display facts (title/budget/posted/description) — the Job-tab card
+    // uses them on the apply page, where the page DOM doesn't expose the real job details.
+    if (resp.job && (resp.job.title || resp.job.budget || resp.job.posted || resp.job.description)) {
+      rfxJobFacts[jobId] = resp.job;
+      if (surface === "job") render();
+    }
+    // Restore the draft, unless a fresh / in-flight proposal for this job is already on screen.
+    if (rfxGenJobId === jobId && (rfxGenState === "generating" || rfxGenState === "ready")) return;
+    if (!resp.drafted || !resp.cover_letter) return;
     rfxGenJobId = jobId;
     rfxGenResult = {
       cover_letter: resp.cover_letter,
@@ -1169,11 +1175,21 @@
     const data = (open.id && rfxJobCache[open.id]) ||
       (open.id ? { connected: true, checking: true } : { connected: false });
     const dim = data.connected && data.verdict === "irr" ? " rfx-dim" : "";
+    // On the apply page the page DOM doesn't expose the real job details (title is "Submit a
+    // Proposal", no budget/posted/description) — fall back to the DB facts fetched via
+    // /jobs/proposal. On the job-details page the page read is good, so prefer it.
+    const facts = rfxJobFacts[open.id] || {};
+    const onApply = isApplyPage();
+    const title = onApply ? (facts.title || open.title || "(this job)") : (open.title || facts.title || "(this job)");
+    const dType = onApply ? (facts.type || "") : (open.type || facts.type || "");
+    const dBudget = onApply ? (facts.budget || "") : (open.budget || facts.budget || "");
+    const dPosted = onApply ? fmtPosted(facts.posted) : (open.posted || fmtPosted(facts.posted));
+    const dDesc = onApply ? (facts.description || "") : (open.description || facts.description || "");
     // Compact facts up top (type · price, posted date) — same as a Listing tile.
-    const budgetText = [open.type, open.budget].filter(Boolean).join(" · ");
+    const budgetText = [dType, dBudget].filter(Boolean).join(" · ");
     const metaBits = [];
     if (budgetText) metaBits.push(`<span class="rfx-jt-budget">${esc(budgetText)}</span>`);
-    if (open.posted) metaBits.push(`<span class="rfx-jt-posted">${esc(open.posted)}</span>`);
+    if (dPosted) metaBits.push(`<span class="rfx-jt-posted">${esc(dPosted)}</span>`);
     const metaRow = metaBits.length ? `<div class="rfx-jt-meta">${metaBits.join("")}</div>` : "";
     const meta = open.meta.map((v) => `<span class="rfx-detail-stat">${esc(v)}</span>`).join("");
     const stats = open.client.map((v) => `<span class="rfx-detail-stat client">${esc(v)}</span>`).join("");
@@ -1189,12 +1205,12 @@
     return `
       <div class="rfx-context-note">This job — read from the Upwork page. Status from ${SYSTEM_NAME}.</div>
       <div class="rfx-job-card${dim}" data-rfx-jobtab="${esc(open.id)}">
-        <div class="rfx-job-title" style="-webkit-line-clamp:3">${esc(open.title)}</div>
+        <div class="rfx-job-title" style="-webkit-line-clamp:3">${esc(title)}</div>
         ${metaRow}
         <div class="rfx-job-strip">${listCardInner(data, true, open.id)}</div>
         ${meta ? `<div class="rfx-jc-stats">${meta}</div>` : ""}
         ${stats ? `<div class="rfx-jc-stats">${stats}</div>` : ""}
-        ${open.description ? `<div class="rfx-jobdesc">${esc(open.description)}</div>` : ""}
+        ${dDesc ? `<div class="rfx-jobdesc">${esc(dDesc)}</div>` : ""}
         ${open.cipher && !isApplyPage() ? `<a class="rfx-btn primary full rfx-mt rfx-apply-link" href="${esc(applyUrlFor(open.cipher))}" target="_blank" rel="noopener">Apply on Upwork →</a>` : ""}
       </div>
       ${propSection}
@@ -1218,6 +1234,16 @@
   // The Upwork apply page for a job (opens in a new tab, like Upwork's Apply button).
   function applyUrlFor(cipher) {
     return cipher ? `https://www.upwork.com/nx/proposals/job/${cipher}/apply/` : "";
+  }
+
+  // Format a DB posted_at timestamp (ISO) as "Posted Jun 29, 2026". Empty for null/invalid.
+  function fmtPosted(v) {
+    if (!v) return "";
+    try {
+      const d = new Date(v);
+      if (isNaN(d.getTime())) return "";
+      return "Posted " + d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+    } catch (e) { return ""; }
   }
 
   // Are we ON an apply page? (used to auto-switch to the Proposal tab)

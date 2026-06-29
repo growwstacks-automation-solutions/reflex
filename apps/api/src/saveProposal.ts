@@ -66,36 +66,30 @@ export async function persistProposalDraft(
     `;
   }
 
-  // Persist the AI's suggested portfolio points so they restore with the draft. Guarded: if the
-  // portfolio_recommendations column (migration 0006) isn't applied, the core save already
-  // succeeded — we just log and skip (fresh generates still show them from the model response).
-  try {
-    await sql`
-      update proposals set portfolio_recommendations = ${JSON.stringify(portfolioRecs || [])}::jsonb
-      where id = ${proposalId}
-    `;
-  } catch (err) {
-    console.warn(
-      "[persistProposalDraft] portfolio recs skipped:",
-      err instanceof Error ? err.message : String(err),
-    );
-  }
-
-  // Snapshot the matched attachments into assets + proposal_assets (the M:N link). Wrapped in
-  // its own guard: if it fails, the cover-letter + answers are already saved — we log and skip.
+  // Snapshot the matched attachments AND the suggested portfolio points into assets +
+  // proposal_assets (the M:N link), so they all restore with the draft. Wrapped in its own
+  // guard: if it fails, the cover-letter + answers are already saved — we log and skip.
   // NB: we dedupe assets by url with a SELECT-then-INSERT (not ON CONFLICT) so this works
   // WITHOUT the optional assets_url_uniq index (migration 0005 just hardens it against races).
+  // Portfolio points use the existing `portfolio` asset kind — no new column/migration needed.
   try {
     // Clean slate for this proposal (delete the join rows; the shared assets stay).
     await sql`delete from proposal_assets where proposal_id = ${proposalId}`;
 
-    const items: Array<{ kind: "image" | "loom"; label: string; url: string }> = [];
+    const items: Array<{ kind: "image" | "loom" | "portfolio"; label: string; url: string }> = [];
     imageLinks.filter(Boolean).forEach((url, i) =>
       items.push({ kind: "image", label: `Work sample ${i + 1}`, url: String(url).trim() }),
     );
     looms.filter(Boolean).forEach((raw) => {
       const { label, url } = parseLoom(String(raw));
       if (url) items.push({ kind: "loom", label, url });
+    });
+    // Suggested portfolio points: title (label) + page/position (encoded in a synthetic url so
+    // the rep can be pointed to the item). The card shows title + "Portfolio pN, item M" only.
+    (portfolioRecs || []).forEach((p) => {
+      if (!p || (p.title == null && p.page == null)) return;
+      const url = `portfolio://p${p.page ?? ""}/i${p.position ?? ""}`;
+      items.push({ kind: "portfolio", label: String(p.title || "Portfolio item"), url });
     });
 
     for (const it of items) {

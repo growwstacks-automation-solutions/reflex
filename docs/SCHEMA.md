@@ -67,9 +67,7 @@ Partial unique index `one_live_assignment_per_job` on `(job_id) WHERE released_a
 
 **`proposals`** — the ACTION. `id`, `job_id`, `user_id`, `cover_letter`, `token_cost_inr`,
 `tokens`, **`submitted_at`** (NULL = drafted, not yet submitted on Upwork — this is what the
-release clock checks), `created_at`, `updated_at`, **`portfolio_recommendations`** (`jsonb`,
-migration `0006` — the AI's suggested points `[{title,page,position,why}]`, so they restore
-with the draft). Unique index `one_proposal_per_job`.
+release clock checks), `created_at`, `updated_at`. Unique index `one_proposal_per_job`.
 **Written by `POST /generate`** (`saveProposal.ts`) — UPSERTed by `job_id` so generating creates
 the draft and regenerating overwrites the same row; the extension restores it via
 `POST /jobs/proposal` instead of re-calling the model. `/generate` is auth-gated (records `user_id`).
@@ -84,8 +82,11 @@ bytes**), `created_by`, `created_at`. Optional unique index **`assets_url_uniq`*
 urls under concurrent generates.
 
 **`proposal_assets`** — M:N join. `(proposal_id, asset_id)` PK. **Populated by `POST /generate`**
-(`saveProposal.ts`): the matched `image_links` + `looms` it produced are snapshotted into `assets`
-(by url) and linked here to the draft. Replaced wholesale on each regenerate.
+(`saveProposal.ts`): the matched `image_links` (kind `image`) + `looms` (kind `loom`) **and the
+suggested portfolio points** (kind `portfolio` — title in `assets.label`, page/position encoded in
+a synthetic `portfolio://pN/iM` url) are snapshotted into `assets` (deduped by url) and linked here
+to the draft, so they all restore via `POST /jobs/proposal`. Replaced wholesale on each regenerate.
+No new column needed — reuses the existing `asset_kind` enum.
 
 **`thread_messages`** — synced Upwork conversation, one thread per job. `id`, `job_id`,
 `room_id`, `message_id` (**unique — idempotency key for the sync**), `sender` (`msg_sender`),
