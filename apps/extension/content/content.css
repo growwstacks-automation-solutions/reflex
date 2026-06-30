@@ -100,6 +100,16 @@
 #rfx-root .rfx-ai-veil{display:none}
 #rfx-root .rfx-ai-fields.rfx-blur ~ .rfx-ai-veil{display:flex;align-items:center;justify-content:center;
   position:absolute;inset:0;z-index:2;font-size:12px;font-weight:600;color:var(--rfx-indigo)}
+/* compact verdict block — Relevance + Quality on one row, short Reason */
+#rfx-root .rfx-ai-2col{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#rfx-root .rfx-ai-2col .rfx-add-frow{flex-direction:column;align-items:stretch;gap:3px;padding:2px 0}
+#rfx-root .rfx-ai-2col .rfx-add-k{min-width:0;font-size:11px}
+#rfx-root .rfx-add-ai .rfx-edit{min-height:48px;font-size:12px;padding:7px 9px}
+/* once checked, the AI fields read as static values rather than greyed-out, disabled inputs */
+#rfx-root .rfx-ai-locked .rfx-add-select:disabled,
+#rfx-root .rfx-ai-locked .rfx-edit[readonly]{opacity:1;color:var(--rfx-text);-webkit-text-fill-color:var(--rfx-text);
+  background:var(--rfx-surface);cursor:default;border-color:var(--rfx-border)}
+#rfx-root .rfx-ai-locked .rfx-add-select:disabled{appearance:none;-webkit-appearance:none;-moz-appearance:none;padding-right:9px}
 
 /* ---------- floating launcher ---------- */
 #rfx-launcher {

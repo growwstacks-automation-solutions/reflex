@@ -404,6 +404,81 @@
     return { country: parts[0] || "", city: parts[1] || "" };
   }
 
+  // Locate the "About the client" sidebar (a SEPARATE block from the job description region) so we
+  // read the client's facts — not the job's header. Returns the section element, or null.
+  function findClientSection() {
+    const h = Array.from(document.querySelectorAll("h2, h3, h4, strong, div, span"))
+      .find((el) => el.children.length === 0 && /^about the client$/i.test((el.textContent || "").trim()));
+    if (!h) return null;
+    let el = h;
+    for (let i = 0; i < 6 && el.parentElement; i++) {
+      el = el.parentElement;
+      const t = el.textContent || "";
+      if (t.length < 3000 && /(payment method verified|jobs posted|total spent|member since|hire rate)/i.test(t)) return el;
+    }
+    return null;
+  }
+
+  // Parse the client facts the Add form keeps: country, city, total spend, payment-verified, hires.
+  function readClientInfo(section) {
+    const out = { country: "", city: "", spend: "", payment_verified: null, total_hired: "" };
+    if (!section) return out;
+    const txt = (section.textContent || "").replace(/\s+/g, " ");
+    // Location — the client's own (not the job's "Worldwide"). Country is usually a <strong>/first
+    // line; the city sits on the next line with the client's local time, which we strip off.
+    const locEl = section.querySelector("[data-qa='client-location'], [data-test='client-location'], [data-test='LocationLabel']");
+    if (locEl) {
+      const stripTime = (s) => (s || "").replace(/\s*\d{1,2}:\d{2}\s*(?:am|pm)?\b.*$/i, "").trim();
+      const strong = locEl.querySelector("strong");
+      const lines = ((locEl.innerText || locEl.textContent || "")).split(/\n+/).map((s) => s.trim()).filter(Boolean);
+      out.country = stripTime(strong ? strong.textContent : (lines[0] || ""));
+      const cityLine = lines.find((l) => l !== (strong ? strong.textContent.trim() : lines[0]));
+      out.city = stripTime(cityLine || "");
+    }
+    out.payment_verified = /payment (?:method )?verified/i.test(txt) ? true : null;
+    const spendM = txt.match(/(\$[\d.,]+\s*[kmb]?\+?)\s*(?:total\s*)?spent/i);
+    if (spendM) out.spend = spendM[1].replace(/\s+/g, "").trim();
+    const hiresM = txt.match(/(\d+)\s+hires?\b/i);
+    if (hiresM) out.total_hired = Number(hiresM[1]);
+    return out;
+  }
+
+  // ISO YYYY-MM-DD for a Date.
+  function isoDate(d) { return d.toISOString().slice(0, 10); }
+  // Upwork's project-length buckets -> an approximate engagement in weeks (the column is numeric).
+  function durationToWeeks(s) {
+    const t = String(s || "").toLowerCase();
+    if (!t) return "";
+    if (/less than 1 month/.test(t)) return 4;
+    if (/1 to 3 months/.test(t)) return 12;
+    if (/3 to 6 months/.test(t)) return 24;
+    if (/more than 6 months|6\+\s*months/.test(t)) return 26;
+    const r = t.match(/(\d+)\s*to\s*(\d+)\s*months?/);
+    if (r) return Math.round(((Number(r[1]) + Number(r[2])) / 2) * 4.345);
+    const one = t.match(/(\d+)\s*months?/);
+    if (one) return Math.round(Number(one[1]) * 4.345);
+    return "";
+  }
+  // "Posted Jun 30, 2026" or relative "Posted 3 days ago"/"2 weeks ago"/"yesterday" -> YYYY-MM-DD.
+  function postedToISO(s) {
+    const t = String(s || "").trim();
+    if (!t) return "";
+    const abs = t.match(/([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})/);
+    if (abs) { const d = new Date(abs[1]); if (!isNaN(d.getTime())) return isoDate(d); }
+    const now = new Date();
+    if (/yesterday/i.test(t)) { now.setDate(now.getDate() - 1); return isoDate(now); }
+    const rel = t.match(/(\d+)\s*(minute|hour|day|week|month)s?\s*ago/i);
+    if (rel) {
+      const n = Number(rel[1]); const u = rel[2].toLowerCase();
+      if (u === "day") now.setDate(now.getDate() - n);
+      else if (u === "week") now.setDate(now.getDate() - n * 7);
+      else if (u === "month") now.setMonth(now.getMonth() - n);
+      // minutes / hours -> still today
+      return isoDate(now);
+    }
+    return "";
+  }
+
   function collectAddData(jobId, fallbackTitle) {
     const open = readOpenJob();
     if (!(open && open.id === jobId)) {
@@ -414,14 +489,34 @@
     const text = (region.textContent || "").replace(/\s+/g, " ");
     const pick = (re) => { const m = text.match(re); return m ? (m[1] != null ? m[1] : m[0]).trim() : ""; };
 
-    const contract_type = /fixed-price/i.test(text) ? "Fixed-price" : (/\bhourly\b/i.test(text) ? "Hourly" : "");
-    const budget_text = pick(/\$[\d.,]+(?:\.\d{2})?(?:\s*-\s*\$?[\d.,]+)?(?:\s*\/\s*hr)?/i);
-    const expRaw = pick(/\b(entry level|intermediate|expert)\b/i).toLowerCase();
+    // Type + budget come from the SAME page parse the Job card shows (parseTileBudget), so the
+    // saved record matches what the rep sees — not the old loose "/fixed-price/" + first-$ guess.
+    const contract_type = open.type || "";
+    const budget_text = open.budget || pick(/\$[\d.,]+(?:\.\d{2})?(?:\s*-\s*\$?[\d.,]+)?(?:\s*\/\s*hr)?/i);
+
+    // Experience / workload / duration: prefer the parsed meta grid (open.meta — the same chips the
+    // card shows), fall back to scanning the region text. This is the Upwork "Experience Level /
+    // Duration / hrs-per-week" block, which used to come through empty.
+    const metaStr = (open.meta || []).join(" · ");
+    const grab = (re) => { const m = (metaStr.match(re) || text.match(re)); return m ? (m[1] != null ? m[1] : m[0]).trim() : ""; };
+    const expRaw = grab(/\b(entry level|intermediate|expert)\b/i).toLowerCase();
     const experience_level = expRaw === "entry level" ? "Entry level"
       : expRaw === "intermediate" ? "Intermediate" : expRaw === "expert" ? "Expert" : "";
-    const client_spend = pick(/\$[\d.,]+\s*[kmb]?\+?\s*(?:total\s*)?spent/i);
-    const client_payment_verified = /payment (?:method )?verified/i.test(text) ? true : null;
-    const loc = readClientLocation(region);
+    // Hourly workload commitment ("Less than 30 hrs/week", "More than 30 hrs/week").
+    const hourly_budget_type = grab(/(?:less than|more than|up to)\s*\d+\s*hrs?\/week/i);
+    // Project duration bucket -> engagement weeks (approx).
+    const engagement_weeks = durationToWeeks(grab(/(less than 1 month|1 to 3 months|3 to 6 months|more than 6 months|6\+\s*months|\d+\s*to\s*\d+\s*months?)/i));
+    // Posted date -> YYYY-MM-DD (page shows it relative or absolute).
+    const posted_at = postedToISO(open.posted) || postedToISO(pick(/Posted\b[^·|]{0,30}?(?:ago|\d{4})/i));
+
+    // Client facts live in the "About the client" sidebar — a SEPARATE block from the description
+    // region — so scope to it. (The old code scanned the description region and grabbed the job's
+    // "Worldwide" header location as the client country.)
+    const cinfo = readClientInfo(findClientSection());
+    const client_spend = cinfo.spend || pick(/\$[\d.,]+\s*[kmb]?\+?\s*(?:total\s*)?spent/i);
+    const client_payment_verified = cinfo.payment_verified != null ? cinfo.payment_verified
+      : (/payment (?:method )?verified/i.test(text) ? true : null);
+    const loc = { country: cinfo.country, city: cinfo.city };
 
     // Structured budget: pull the $ number(s) out of budget_text and route by contract type.
     const moneyNums = (budget_text.match(/[\d.,]+/g) || [])
@@ -437,7 +532,7 @@
       if (moneyNums[1] != null) fixed_amount_max = moneyNums[1];
     }
     const hiresM = text.match(/(\d+)\s+hires?\b/i);
-    const total_hired = hiresM ? Number(hiresM[1]) : "";
+    const total_hired = cinfo.total_hired || (hiresM ? Number(hiresM[1]) : "");
 
     return {
       upwork_job_id: jobId,
@@ -454,8 +549,8 @@
       client_payment_verified,
       // Structured budget / terms (auto where parseable; editable otherwise)
       fixed_amount, fixed_amount_max, fixed_currency,
-      hourly_min, hourly_max, hourly_budget_type: "",
-      engagement_weeks: "", posted_at: "",
+      hourly_min, hourly_max, hourly_budget_type,
+      engagement_weeks, posted_at,
       // Client detail (not reliably on the page — editable)
       client_country_code: "", client_timezone: "", client_billing_type: "", last_client_activity: "",
       // Activity / competition (mostly editable; total_hired best-effort)
@@ -517,23 +612,24 @@
     const hb = d.has_bids === true ? "true" : d.has_bids === false ? "false" : "";
 
     return `
-      <div class="rfx-context-note">All the fields ${SYSTEM_NAME} will save — run <b>Check relevance</b> to classify, edit anything, then confirm. The job is added to your board and claimed by you.</div>
+      <div class="rfx-context-note">${SYSTEM_NAME} auto-checks relevance. Review the captured fields below, then confirm — the job is added to your board and claimed by you.</div>
 
       <div class="rfx-prop-sec rfx-add-ai">
         <div class="rfx-add-aihead">
-          <div class="rfx-section-label">AI classification — check before adding (editable)</div>
-          <button class="rfx-btn primary sm" data-classify><span class="rfx-spark">✦</span> Check relevance</button>
+          <div class="rfx-section-label">AI classification</div>
+          <button class="rfx-btn primary sm" data-classify><span class="rfx-spark">✦</span> Re-check</button>
         </div>
         <div class="rfx-add-aicost hidden" data-aicost></div>
         <div class="rfx-ai-wrap">
-          <div class="rfx-ai-fields${rfxAddClass ? "" : " rfx-blur"}" data-ai-fields>
-            ${sel("verdict", "Relevance", d.verdict || ai.verdict, [{ v: "relevant", t: "Relevant" }, { v: "review", t: "Needs review" }, { v: "irrelevant", t: "Not a fit" }])}
-            ${sel("quality", "Quality", d.quality || ai.quality, [{ v: "good", t: "Good" }, { v: "medium", t: "Medium" }, { v: "poor", t: "Poor" }])}
+          <div class="rfx-ai-fields${rfxAddClass ? " rfx-ai-locked" : " rfx-blur"}" data-ai-fields>
+            <div class="rfx-ai-2col">
+              ${sel("verdict", "Relevance", d.verdict || ai.verdict, [{ v: "relevant", t: "Relevant" }, { v: "review", t: "Needs review" }, { v: "irrelevant", t: "Not a fit" }])}
+              ${sel("quality", "Quality", d.quality || ai.quality, [{ v: "good", t: "Good" }, { v: "medium", t: "Medium" }, { v: "poor", t: "Poor" }])}
+            </div>
             ${area("reason", "Reason", d.reason || ai.reason)}
           </div>
-          <div class="rfx-ai-veil">Run <b>&nbsp;Check relevance&nbsp;</b> to reveal</div>
+          <div class="rfx-ai-veil">Checking relevance…</div>
         </div>
-        <div class="rfx-add-note">Taxonomy (tool · use case · department · industry) is set later by classification.</div>
       </div>
 
       <div class="rfx-prop-sec">
@@ -723,7 +819,10 @@
     const confirm = body.querySelector("[data-add-confirm]");
     if (confirm) confirm.addEventListener("click", () => submitAdd(confirm));
     const classifyBtn = body.querySelector("[data-classify]");
-    if (classifyBtn) classifyBtn.addEventListener("click", () => runClassify(classifyBtn, body));
+    if (classifyBtn) {
+      classifyBtn.addEventListener("click", () => runClassify(classifyBtn, body));
+      runClassify(classifyBtn, body); // auto-run on open — the rep no longer clicks "Check relevance"
+    }
   }
 
   // Job-tab "Add to Reflex": the same Add review process, but the job card slides to the
@@ -750,7 +849,10 @@
     const confirm = body.querySelector("[data-add-confirm]");
     if (confirm) confirm.addEventListener("click", () => submitAdd(confirm));
     const classifyBtn = body.querySelector("[data-classify]");
-    if (classifyBtn) classifyBtn.addEventListener("click", () => runClassify(classifyBtn, body));
+    if (classifyBtn) {
+      classifyBtn.addEventListener("click", () => runClassify(classifyBtn, body));
+      runClassify(classifyBtn, body); // auto-run on open — the rep no longer clicks "Check relevance"
+    }
   }
 
   // The collapsed "Adding this job" header card. Title is always shown; the chevron expands
@@ -848,9 +950,15 @@
     setVal("verdict", r.verdict);
     setVal("quality", r.quality);
     setVal("reason", r.reason);
-    // Reveal the now-filled AI fields.
+    // Reveal the now-filled AI fields and LOCK them — the model's verdict isn't hand-editable.
+    // (disabled selects / readonly textarea still report .value, so the Add payload keeps them.)
     const fields = body.querySelector("[data-ai-fields]");
-    if (fields) fields.classList.remove("rfx-blur");
+    if (fields) {
+      fields.classList.remove("rfx-blur");
+      fields.classList.add("rfx-ai-locked");
+      fields.querySelectorAll("select").forEach((el) => { el.disabled = true; });
+      fields.querySelectorAll("textarea, input").forEach((el) => { el.readOnly = true; });
+    }
     // Remember the cost so Confirm add persists it to jobs.token_cost_inr / cache_status.
     rfxAddClass = { token_cost_inr: r.cost_inr, cache_status: r.cache_status, tokens: r.tokens };
     if (cost) {
@@ -964,6 +1072,52 @@
 
   // Read the jobs currently on the Upwork results page. Best-effort selectors with
   // text-pattern fallbacks (Upwork's tile testids drift) — read-only, never writes.
+  // Budget / contract type — exactly what the Upwork tile/detail text shows. Hourly appears in
+  // two forms: "Hourly: $50.00 - $95.00" (no /hr suffix) and "$30/hr"; fixed shows
+  // "Est. budget: $500.00". The [KMB] suffix is attached to the number (no \s* gap) so it can't
+  // grab the leading letter of the next word (the old "$1,200.00 B" bug from "…BUILD").
+  function parseTileBudget(text) {
+    const t = String(text || "");
+    // Decide the type from the tile's BUDGET facts, not a loose word match — the description
+    // and skills routinely contain "hourly" or "fixed price", and either one would otherwise
+    // flip the label. Priority: a budget estimate ⇒ fixed (only fixed tiles show "Est. budget");
+    // an hourly rate or the "Hourly:/Hourly -" meta tag ⇒ hourly; bare "fixed price" only last.
+    const estBudget = t.match(/Est(?:imated)?\.?\s*budget\s*:?\s*(\$[\d.,]+[KMB]?)/i); // fixed-only fact
+    // Hourly rate in any of its layouts: listing "Hourly: $x - $y", "$x/hr", or the job-details
+    // layout where the amount comes BEFORE the label ("$x - $y Hourly").
+    const hourlyRate = t.match(/hourly\s*:?\s*(\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?)/i)
+                    || t.match(/(\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?)\s*\/\s*hr/i)
+                    || t.match(/(\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?)\s*hourly/i);
+    // "Hourly" meta tag — anchored to what follows it on the tile line (an experience level,
+    // "Est…", or a "$" rate). Upwork renders the "·"/"-" separators with CSS, so textContent has
+    // none — we can't require one. Anchoring to the next meta token still rejects a stray "hourly"
+    // sitting in the description (it'd be followed by ordinary prose, not a level/Est/$).
+    // Also catches the job-details / apply layout where "Hourly" is a sub-label: "Hourly range"
+    // next to the rate, or the contract label sitting right after the weekly hours
+    // ("Less than 30 hrs/week  Hourly") — the only reliable no-rate hourly signal on those pages.
+    const hourlyTag = /\bhourly[\s:·•\-–]*(?:entry|intermediate|expert|est\b|range\b|\$)/i.test(t)
+                   || /hrs?\/week\s*hourly\b/i.test(t);
+    let type = "";
+    let budget = "";
+    if (estBudget) {
+      type = "Fixed-price";
+      budget = estBudget[1].trim();
+    } else if (hourlyRate || hourlyTag) {
+      type = "Hourly";
+      if (hourlyRate) budget = hourlyRate[1].replace(/\s+/g, " ").trim();
+    } else if (/\bfixed[- ]price\b/i.test(t)) {
+      type = "Fixed-price"; // fixed job with no visible budget
+    }
+    // Fixed-price amount without "Est. budget" — the job-details page shows "$700.00 Fixed-price"
+    // (amount beside the tag, not under an "Est. budget" label). Fill it in when we know it's fixed.
+    if (type === "Fixed-price" && !budget) {
+      const m = t.match(/(\$[\d.,]+[KMB]?)\s*Fixed[- ]price/i)        // "$700.00 Fixed-price"
+             || t.match(/Fixed[- ]price\s*:?\s*(\$[\d.,]+[KMB]?)/i);  // "Fixed-price: $700.00"
+      if (m) budget = m[1].trim();
+    }
+    return { type, budget };
+  }
+
   function readVisibleTiles() {
     return Array.from(document.querySelectorAll(ANCHORS.jobTile)).map((tile) => {
       const jobId = tile.getAttribute("data-test-key") || tile.getAttribute("data-ev-job-uid") || "";
@@ -987,14 +1141,7 @@
       const description = descEl ? descEl.textContent.trim().replace(/\s+/g, " ") : "";
 
       // Budget / contract type — same facts the real Upwork tile shows.
-      const isFixed = /fixed[- ]price/i.test(text);
-      const isHourly = /\bhourly\b/i.test(text);
-      const type = isFixed ? "Fixed-price" : (isHourly ? "Hourly" : "");
-      const hr = text.match(/\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?\s*\/\s*hr/i);
-      const est = text.match(/Est(?:imated)?\.?\s*budget:?\s*\$[\d.,]+\s*[KMB]?/i);
-      const budget = hr
-        ? hr[0].replace(/\s+/g, " ").trim()
-        : est ? est[0].replace(/Est(?:imated)?\.?\s*budget:?\s*/i, "").replace(/\s+/g, " ").trim() : "";
+      const { type, budget } = parseTileBudget(text);
 
       return { jobId, title, posted, description, type, budget };
     });
@@ -1180,9 +1327,16 @@
     // /jobs/proposal. On the job-details page the page read is good, so prefer it.
     const facts = rfxJobFacts[open.id] || {};
     const onApply = isApplyPage();
+    // The DB's budget_text sometimes holds a bare type word ("Hourly"/"Fixed") rather than an
+    // amount — only trust it as a budget when it actually contains a number, so we never render
+    // "Hourly · Hourly". The page parse (open.budget) is always a "$…" amount or "".
+    const factsBudget = /\d/.test(String(facts.budget || "")) ? facts.budget : "";
     const title = onApply ? (facts.title || open.title || "(this job)") : (open.title || facts.title || "(this job)");
-    const dType = onApply ? (facts.type || "") : (open.type || facts.type || "");
-    const dBudget = onApply ? (facts.budget || "") : (open.budget || facts.budget || "");
+    // Type/budget: always prefer the PAGE parse. The apply page hides them from the H1/title but
+    // still shows them in its "Job details" sidebar ("$10 - $25 · Hourly range", "$4,500 ·
+    // Fixed-price"), which readOpenJob reads — so we no longer fall back to the DB's bare word here.
+    const dType = open.type || facts.type || "";
+    const dBudget = open.budget || factsBudget;
     const dPosted = onApply ? fmtPosted(facts.posted) : (open.posted || fmtPosted(facts.posted));
     const dDesc = onApply ? (facts.description || "") : (open.description || facts.description || "");
     // Compact facts up top (type · price, posted date) — same as a Listing tile.
@@ -1284,6 +1438,24 @@
     return null;
   }
 
+  // The apply page (/apply) has no detail region, but it DOES render a "Job details" card whose
+  // sidebar shows the budget ("$10 - $25 · Hourly range", "$4,500 · Fixed-price", or just
+  // "Hourly"). Locate that card so we can read the budget from the page instead of the DB.
+  // Returns the section element, or null (caller falls back to the whole document).
+  function findApplyDetails() {
+    const h = Array.from(document.querySelectorAll("h2, h3, h4, strong, div, span"))
+      .find((el) => el.children.length === 0 && /^job details$/i.test((el.textContent || "").trim()));
+    if (!h) return null;
+    let el = h;
+    for (let i = 0; i < 6 && el.parentElement; i++) {
+      el = el.parentElement;
+      const t = el.textContent || "";
+      // Stop at the card that holds the budget meta but isn't the whole page.
+      if (t.length < 4000 && /experience level|project length|hrs?\/week|fixed-price|\bhourly\b/i.test(t)) return el;
+    }
+    return null;
+  }
+
   // The job "type" meta — the same facts Upwork shows as its icon grid.
   function readJobMeta(text) {
     const m = (re) => { const x = text.match(re); return x ? x[0].replace(/\s+/g, " ").trim() : ""; };
@@ -1330,12 +1502,13 @@
       /payment (?:method )?verified/i.test(text) ? "✓ Payment verified" : "",
     ].filter(Boolean);
     // Compact card facts (same as a Listing tile): type · price, and the posted date.
-    const type = /fixed[- ]price/i.test(text) ? "Fixed-price" : (/\bhourly\b/i.test(text) ? "Hourly" : "");
-    const hr = text.match(/\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?\s*\/\s*hr/i);
-    const est = text.match(/Est(?:imated)?\.?\s*budget:?\s*\$[\d.,]+\s*[KMB]?/i);
-    const budget = hr
-      ? hr[0].replace(/\s+/g, " ").trim()
-      : est ? est[0].replace(/Est(?:imated)?\.?\s*budget:?\s*/i, "").replace(/\s+/g, " ").trim() : "";
+    // On the apply page there's no detail region (text is ""), but the page still shows the budget
+    // in its "Job details" card — parse type/budget from that (scoped, else the whole page) so the
+    // apply card stops falling back to the DB's bare "Hourly"/"Fixed" word. Client/meta/posted
+    // below still read `text` only, so the apply card gains no extra chips.
+    const budgetSrc = text
+      || (isApplyPage() ? ((findApplyDetails() || document.body || {}).textContent || "").replace(/\s+/g, " ") : "");
+    const { type, budget } = parseTileBudget(budgetSrc);
     const pm = text.match(/Posted\s+[^·|]+?\bago\b/i);
     const posted = pm ? pm[0].trim() : "";
     return { id, title, description, meta, client, type, budget, posted, cipher: openJobCipherId() };
