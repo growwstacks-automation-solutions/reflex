@@ -404,42 +404,84 @@
     return { country: parts[0] || "", city: parts[1] || "" };
   }
 
-  // Locate the "About the client" sidebar (a SEPARATE block from the job description region) so we
-  // read the client's facts — not the job's header. Returns the section element, or null.
+  // Locate the "About the client" sidebar. Upwork gives it a stable container test-id
+  // (data-test="about-client-container AboutClientUserShared AboutClientUser"); fall back to the
+  // "About the client" heading (an <h5>) if the markup ever changes. Returns the element, or null.
   function findClientSection() {
-    const h = Array.from(document.querySelectorAll("h2, h3, h4, strong, div, span"))
-      .find((el) => el.children.length === 0 && /^about the client$/i.test((el.textContent || "").trim()));
+    const direct = document.querySelector(
+      "[data-test~='about-client-container'], .cfe-ui-job-about-client, [data-test*='AboutClientUser'], [data-qa='client-location']"
+    );
+    if (direct) return direct.closest("[data-test~='about-client-container'], .cfe-ui-job-about-client") || direct;
+    const h = Array.from(document.querySelectorAll("h2, h3, h4, h5, strong, div, span, p"))
+      .find((el) => { const t = (el.textContent || "").trim(); return /^about the client$/i.test(t) && t.length < 30; });
     if (!h) return null;
     let el = h;
-    for (let i = 0; i < 6 && el.parentElement; i++) {
+    for (let i = 0; i < 7 && el.parentElement; i++) {
       el = el.parentElement;
       const t = el.textContent || "";
-      if (t.length < 3000 && /(payment method verified|jobs posted|total spent|member since|hire rate)/i.test(t)) return el;
+      if (/(payment method verified|jobs posted|total spent|member since|hire rate)/i.test(t) && !/proposal settings/i.test(t)) return el;
     }
     return null;
   }
 
-  // Parse the client facts the Add form keeps: country, city, total spend, payment-verified, hires.
+  // ISO-2 code for the common client countries (best-effort; blank if unknown -> rep can edit).
+  const COUNTRY_CODES = {
+    "united states": "US", "united kingdom": "GB", "united arab emirates": "AE", "canada": "CA",
+    "australia": "AU", "india": "IN", "germany": "DE", "france": "FR", "netherlands": "NL",
+    "spain": "ES", "italy": "IT", "ireland": "IE", "switzerland": "CH", "sweden": "SE",
+    "norway": "NO", "denmark": "DK", "belgium": "BE", "austria": "AT", "poland": "PL",
+    "portugal": "PT", "singapore": "SG", "new zealand": "NZ", "israel": "IL", "saudi arabia": "SA",
+    "qatar": "QA", "kuwait": "KW", "south africa": "ZA", "brazil": "BR", "mexico": "MX",
+    "japan": "JP", "china": "CN", "hong kong": "HK", "south korea": "KR", "croatia": "HR",
+    "greece": "GR", "turkey": "TR", "ukraine": "UA", "romania": "RO", "philippines": "PH",
+    "pakistan": "PK", "bangladesh": "BD", "nigeria": "NG", "egypt": "EG", "finland": "FI",
+    "czech republic": "CZ", "hungary": "HU", "indonesia": "ID", "malaysia": "MY", "thailand": "TH",
+  };
+  function countryCode(name) {
+    return COUNTRY_CODES[String(name || "").trim().toLowerCase()] || "";
+  }
+
+  // Parse the client facts the Add form keeps: country, city, timezone, spend, payment-verified,
+  // hires. Upwork's per-field selectors drift, so we read the sidebar's TEXT LINES instead — the
+  // client location renders as "<Country>\n<City>  <local time>", reliable across layouts.
   function readClientInfo(section) {
-    const out = { country: "", city: "", spend: "", payment_verified: null, total_hired: "" };
+    const out = { country: "", city: "", timezone: "", spend: "", payment_verified: null, total_hired: "" };
     if (!section) return out;
-    const txt = (section.textContent || "").replace(/\s+/g, " ");
-    // Location — the client's own (not the job's "Worldwide"). Country is usually a <strong>/first
-    // line; the city sits on the next line with the client's local time, which we strip off.
-    const locEl = section.querySelector("[data-qa='client-location'], [data-test='client-location'], [data-test='LocationLabel']");
+    const T = (el) => (el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "");
+    const sectionTxt = T(section);
+    out.payment_verified = /payment method verified/i.test(sectionTxt) ? true : null;
+
+    // Location: <li data-qa="client-location"> has <strong>Country</strong> and a <div> with the
+    // city span + a [data-test="LocalTime"] span. Use the structure — no text guessing.
+    const locEl = section.querySelector("[data-qa='client-location']");
     if (locEl) {
-      const stripTime = (s) => (s || "").replace(/\s*\d{1,2}:\d{2}\s*(?:am|pm)?\b.*$/i, "").trim();
-      const strong = locEl.querySelector("strong");
-      const lines = ((locEl.innerText || locEl.textContent || "")).split(/\n+/).map((s) => s.trim()).filter(Boolean);
-      out.country = stripTime(strong ? strong.textContent : (lines[0] || ""));
-      const cityLine = lines.find((l) => l !== (strong ? strong.textContent.trim() : lines[0]));
-      out.city = stripTime(cityLine || "");
+      out.country = T(locEl.querySelector("strong")) || out.country;
+      const timeEl = locEl.querySelector("[data-test='LocalTime']");
+      const localTime = T(timeEl);
+      const cityEl = Array.from(locEl.querySelectorAll("span")).find(
+        (s) => s !== timeEl && T(s) && !/\b\d{1,2}:\d{2}\b/.test(T(s))
+      );
+      out.city = T(cityEl) || T(locEl.querySelector("div")).replace(/\s*\d{1,2}:\d{2}\s*(?:am|pm)?\s*$/i, "").trim();
+      // Approximate the client's UTC offset from their shown local time vs current UTC.
+      const tm = localTime.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+      if (tm) {
+        let h = Number(tm[1]) % 12; if (/pm/i.test(tm[3])) h += 12;
+        const now = new Date();
+        let diff = (h * 60 + Number(tm[2])) - (now.getUTCHours() * 60 + now.getUTCMinutes());
+        if (diff > 720) diff -= 1440; if (diff <= -720) diff += 1440;
+        const off = Math.round(diff / 30) * 30;
+        const ah = Math.floor(Math.abs(off) / 60); const am = Math.abs(off) % 60;
+        out.timezone = `UTC${off >= 0 ? "+" : "-"}${ah}${am ? ":" + String(am).padStart(2, "0") : ""}`;
+      }
     }
-    out.payment_verified = /payment (?:method )?verified/i.test(txt) ? true : null;
-    const spendM = txt.match(/(\$[\d.,]+\s*[kmb]?\+?)\s*(?:total\s*)?spent/i);
-    if (spendM) out.spend = spendM[1].replace(/\s+/g, "").trim();
-    const hiresM = txt.match(/(\d+)\s+hires?\b/i);
-    if (hiresM) out.total_hired = Number(hiresM[1]);
+
+    // Spend / hires: prefer the structured cells, fall back to the section text.
+    const spendTxt = T(section.querySelector("[data-qa='client-spend']")) || sectionTxt;
+    const sm = spendTxt.match(/(\$[\d.,]+\s*[kmb]?\+?)\s*(?:total\s*)?spent/i);
+    if (sm) out.spend = sm[1].replace(/\s+/g, "").trim();
+    const hiresTxt = T(section.querySelector("[data-qa='client-hires']")) || sectionTxt;
+    const hm = hiresTxt.match(/(\d+)\s+hires?\b/i);
+    if (hm) out.total_hired = Number(hm[1]);
     return out;
   }
 
@@ -509,13 +551,12 @@
     // Posted date -> YYYY-MM-DD (page shows it relative or absolute).
     const posted_at = postedToISO(open.posted) || postedToISO(pick(/Posted\b[^·|]{0,30}?(?:ago|\d{4})/i));
 
-    // Client facts live in the "About the client" sidebar — a SEPARATE block from the description
-    // region — so scope to it. (The old code scanned the description region and grabbed the job's
-    // "Worldwide" header location as the client country.)
+    // Client facts come ONLY from the "About the client" sidebar — never scanned from elsewhere on
+    // the page (that's how the job's "Worldwide" header or a stray "$…spent" leaked in before). If
+    // the section isn't present, the client fields stay blank (editable) rather than guessed.
     const cinfo = readClientInfo(findClientSection());
-    const client_spend = cinfo.spend || pick(/\$[\d.,]+\s*[kmb]?\+?\s*(?:total\s*)?spent/i);
-    const client_payment_verified = cinfo.payment_verified != null ? cinfo.payment_verified
-      : (/payment (?:method )?verified/i.test(text) ? true : null);
+    const client_spend = cinfo.spend;
+    const client_payment_verified = cinfo.payment_verified;
     const loc = { country: cinfo.country, city: cinfo.city };
 
     // Structured budget: pull the $ number(s) out of budget_text and route by contract type.
@@ -531,8 +572,7 @@
       if (moneyNums[0] != null) fixed_amount = moneyNums[0];
       if (moneyNums[1] != null) fixed_amount_max = moneyNums[1];
     }
-    const hiresM = text.match(/(\d+)\s+hires?\b/i);
-    const total_hired = cinfo.total_hired || (hiresM ? Number(hiresM[1]) : "");
+    const total_hired = cinfo.total_hired; // from the "About the client" section only
 
     return {
       upwork_job_id: jobId,
@@ -551,8 +591,9 @@
       fixed_amount, fixed_amount_max, fixed_currency,
       hourly_min, hourly_max, hourly_budget_type,
       engagement_weeks, posted_at,
-      // Client detail (not reliably on the page — editable)
-      client_country_code: "", client_timezone: "", client_billing_type: "", last_client_activity: "",
+      // Client detail (timezone approximated from the client's local time; rest editable)
+      client_country_code: countryCode(loc.country), client_timezone: cinfo.timezone || "",
+      client_billing_type: "", last_client_activity: "",
       // Activity / competition (mostly editable; total_hired best-effort)
       has_bids: null, bid_min_rate: "", bid_avg_rate: "", bid_max_rate: "",
       invites_sent: "", total_invited_to_interview: "", total_hired,
@@ -1083,11 +1124,13 @@
     // flip the label. Priority: a budget estimate ⇒ fixed (only fixed tiles show "Est. budget");
     // an hourly rate or the "Hourly:/Hourly -" meta tag ⇒ hourly; bare "fixed price" only last.
     const estBudget = t.match(/Est(?:imated)?\.?\s*budget\s*:?\s*(\$[\d.,]+[KMB]?)/i); // fixed-only fact
-    // Hourly rate in any of its layouts: listing "Hourly: $x - $y", "$x/hr", or the job-details
-    // layout where the amount comes BEFORE the label ("$x - $y Hourly").
+    // Hourly rate in any of its layouts: listing "Hourly: $x - $y", the job-details layout where
+    // the amount comes BEFORE the label ("$x - $y Hourly"), or finally "$x/hr". The label-bound
+    // forms are tried FIRST, and the bare "$x/hr" excludes the client's "$x/hr avg rate paid" — so
+    // the "About the client" average hourly rate is never mistaken for the job's rate.
     const hourlyRate = t.match(/hourly\s*:?\s*(\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?)/i)
-                    || t.match(/(\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?)\s*\/\s*hr/i)
-                    || t.match(/(\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?)\s*hourly/i);
+                    || t.match(/(\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?)\s*hourly\b/i)
+                    || t.match(/(\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?)\s*\/\s*hr\b(?!\s*(?:avg|rate|paid))/i);
     // "Hourly" meta tag — anchored to what follows it on the tile line (an experience level,
     // "Est…", or a "$" rate). Upwork renders the "·"/"-" separators with CSS, so textContent has
     // none — we can't require one. Anchoring to the next meta token still rejects a stray "hourly"
@@ -1157,6 +1200,18 @@
       return `<div class="rfx-jc-line"><span class="rfx-jc-note">${SYSTEM_NAME} · not synced</span></div>`;
     }
     if (!data.inReflex) {
+      // On the apply page the page hides the client block + full job details, so Adding here would
+      // save a poor record (and the wrong title). Instead of Add, send the rep to the real job
+      // posting — Add works properly there.
+      if (jobTab && isApplyPage()) {
+        const url = jobPostingUrl();
+        return `<div class="rfx-jc-line"><span class="rfx-jc-note">Open the job posting to add it to ${SYSTEM_NAME}</span></div>` +
+          `<div class="rfx-jc-acts">` +
+          (url
+            ? `<a class="rfx-btn primary full" href="${esc(url)}" target="_blank" rel="noopener">View job posting →</a>`
+            : `<span class="rfx-jc-note">Job posting link not found on this page.</span>`) +
+          `</div>`;
+      }
       // Job tab: both actions, but Generate is locked until the job is added.
       if (jobTab) {
         return `<div class="rfx-jc-line"><span class="rfx-jc-note">Not in ${SYSTEM_NAME} yet</span></div>` +
@@ -1390,6 +1445,17 @@
     return cipher ? `https://www.upwork.com/nx/proposals/job/${cipher}/apply/` : "";
   }
 
+  // The canonical job-posting URL. On the apply page we can't Add well (the page hides the client
+  // block + full details), so we send the rep to the real job posting to add it there. Prefer the
+  // page's own "View job posting" link; fall back to building it from the URL ciphertext.
+  function jobPostingUrl() {
+    const a = Array.from(document.querySelectorAll("a[href]"))
+      .find((el) => /view job posting/i.test((el.textContent || "").trim()));
+    if (a && a.href) return a.href;
+    const cipher = openJobCipherId();
+    return cipher ? `https://www.upwork.com/nx/search/jobs/details/${cipher}` : "";
+  }
+
   // Format a DB posted_at timestamp (ISO) as "Posted Jun 29, 2026". Empty for null/invalid.
   function fmtPosted(v) {
     if (!v) return "";
@@ -1444,16 +1510,38 @@
   // Returns the section element, or null (caller falls back to the whole document).
   function findApplyDetails() {
     const h = Array.from(document.querySelectorAll("h2, h3, h4, strong, div, span"))
-      .find((el) => el.children.length === 0 && /^job details$/i.test((el.textContent || "").trim()));
+      .find((el) => { const t = (el.textContent || "").trim(); return /^job details$/i.test(t) && t.length < 30; });
     if (!h) return null;
     let el = h;
-    for (let i = 0; i < 6 && el.parentElement; i++) {
+    for (let i = 0; i < 7 && el.parentElement; i++) {
       el = el.parentElement;
       const t = el.textContent || "";
-      // Stop at the card that holds the budget meta but isn't the whole page.
-      if (t.length < 4000 && /experience level|project length|hrs?\/week|fixed-price|\bhourly\b/i.test(t)) return el;
+      // The Job-details card holds the budget meta but NOT the sibling "Proposal settings"/"Terms"
+      // sections — that guard bounds the card without a char limit (long descriptions blew past it).
+      if (/experience level|project length|hrs?\/week|fixed-price|\bhourly\b/i.test(t)
+          && !/proposal settings|do you want to submit/i.test(t)) return el;
     }
     return null;
+  }
+
+  // The real job title on the apply page (the page H1 is "Submit a proposal"). It sits right under
+  // the "Job details" heading — find that heading page-wide, then take the first title-like thing
+  // after it: a heading if the title is a real <h*>, else the next text line.
+  function readApplyJobTitle() {
+    const isLabel = (t) => !t || t.length < 4
+      || /^(job details|summary|terms|skills and expertise|preferred qualifications|activity on this job|about the client|proposal settings)$/i.test(t)
+      || /^posted\b/i.test(t);
+    // 1) The first non-label heading after the "Job details" heading (document order).
+    const heads = Array.from(document.querySelectorAll("h1, h2, h3, h4"))
+      .map((h) => (h.textContent || "").trim().replace(/\s+/g, " "));
+    const hi = heads.findIndex((t) => /^job details$/i.test(t));
+    if (hi >= 0) { const t = heads.slice(hi + 1).find((x) => !isLabel(x)); if (t) return t; }
+    // 2) Fall back to the page text: the line right after "Job details" (title isn't always an <h*>).
+    const lines = (document.body ? (document.body.innerText || document.body.textContent || "") : "")
+      .split(/\n+/).map((s) => s.trim().replace(/\s+/g, " ")).filter(Boolean);
+    const li = lines.findIndex((l) => /^job details$/i.test(l));
+    if (li >= 0) { const t = lines.slice(li + 1, li + 6).find((x) => !isLabel(x)); if (t) return t; }
+    return "";
   }
 
   // The job "type" meta — the same facts Upwork shows as its icon grid.
@@ -1481,8 +1569,15 @@
     const scope = region || document;
     const titleEl = scope.querySelector("h1, h2, h3, h4, [data-test='job-title'], [data-test='JobTitle']");
     let title = titleEl ? titleEl.textContent.trim().replace(/\s+/g, " ") : "";
-    if (!title) title = (document.title || "").replace(/\s*[-|–]\s*Upwork.*$/i, "").trim();
-    if (!title) title = "(this job)";
+    // On the apply page the page H1 is "Submit a proposal" — the real title sits right under the
+    // "Job details" heading. Read it page-wide (not scoped to a card, whose columns live in
+    // separate DOM branches) so a long description or deep nesting can't break it.
+    if (isApplyPage()) {
+      const t = readApplyJobTitle();
+      if (t) title = t;
+    }
+    if (!title || /^submit a proposal$/i.test(title)) title = (document.title || "").replace(/\s*[-|–]\s*Upwork.*$/i, "").trim();
+    if (!title || /^submit a proposal$/i.test(title)) title = "(this job)";
     const text = region ? (region.textContent || "").replace(/\s+/g, " ") : "";
     // description: explicit selector, else the text right after "Summary"
     const descEl = scope.querySelector("[data-test='Description'], [data-test='job-description-text'], [data-test='JobDescription']");
