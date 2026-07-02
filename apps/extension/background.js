@@ -4,7 +4,8 @@
 
 // Local dev: the Worker from `cd apps/api && npm run dev` (wrangler) serves here.
 // TODO(backend): swap for the deployed Worker URL in production.
-const API_BASE = "http://localhost:8787";
+// const API_BASE = "http://localhost:8787";
+const API_BASE = "https://reflex-api.manish-98d.workers.dev";
 
 // Same keys the portal uses (localStorage there, chrome.storage.local here).
 const TOKEN_KEY = "reflex_token";

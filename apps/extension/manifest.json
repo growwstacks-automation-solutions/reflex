@@ -34,6 +34,7 @@
     "http://localhost:8787/*",
     "http://127.0.0.1:8787/*",
     "https://drive.google.com/*",
-    "https://*.googleusercontent.com/*"
+    "https://*.googleusercontent.com/*",
+    "https://reflex-api.manish-98d.workers.dev/*"
   ]
 }
