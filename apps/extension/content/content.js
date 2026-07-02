@@ -135,6 +135,8 @@
   let rfxAddSaved = false;  // true once the open Add card has been persisted (dedupes save-on-leave)
   let rfxAwaitOpenForAdd = null; // jobId the rep wants to add from the listing — waiting for them to open it
   let rfxAwaitOpenForGen = null; // jobId the rep wants to generate for from the listing — waiting for them to open it
+  let rfxSubmitState = {};    // proposalId -> "saving" | "saved" (success-page confirm card state)
+  let rfxSuccessShownFor = ""; // proposalId we've already rendered the success card for (render-once guard)
 
   /* ---------- build launcher ---------- */
   const launcher = document.createElement("button");
@@ -190,6 +192,10 @@
         if (isApplyPage()) {
           surface = "job";                      // apply page -> Job tab (Proposal tab merged in)
           rfxLastOpenId = openJobNumericId();
+          captureApplyContext();                // remember job + connects for the post-submit link
+        } else if (shouldShowSubmitConfirm()) {
+          surface = "job";                      // post-submit success page -> the confirm card
+          rfxSuccessShownFor = proposalSuccessId();
         } else {
           const openId = openJobNumericId();
           if (openId) { surface = "job"; rfxLastOpenId = openId; } // a job is open -> show it
@@ -1368,6 +1374,9 @@
      region) — READ-ONLY — and shows it here with its Reflex strip pulled from the
      DB (CHECK_JOBS), exactly like a Listing card but for the single open job. */
   function renderJob() {
+    // Upwork's post-submit success page — show the "save this submission to Reflex" confirm card
+    // instead of the normal open-job card (this page has no job open, only a proposal id).
+    if (shouldShowSubmitConfirm()) return renderSubmitConfirm();
     const open = readOpenJob();
     if (!open) {
       return `<div class="rfx-context-note">Open a job on Upwork — click any job to view it — and its ${SYSTEM_NAME} details will appear here, with its strip from the database.</div>`;
@@ -1411,11 +1420,22 @@
           ${renderProposal(true)}
         </div>`
       : "";
+    // On the apply page, show that Reflex has armed submission tracking (with the connects it
+    // captured) so the rep knows it'll be recorded after they submit. Text is kept live by the
+    // observer (updateApplyHint) as the bidding box loads/changes.
+    let applyHint = "";
+    if (onApply) {
+      captureApplyContext(); // ensure the pending record (connects) is fresh before we read it
+      const p = readSubmitPending();
+      const c = p && p.connects != null ? p.connects : null;
+      applyHint = `<div class="rfx-apply-hint" data-rfx-apply-hint>✓ ${SYSTEM_NAME} will record this proposal after you submit${c != null ? ` · ${esc(c)} connects` : ""}.</div>`;
+    }
     return `
       <div class="rfx-context-note">This job — read from the Upwork page. Status from ${SYSTEM_NAME}.</div>
       <div class="rfx-job-card${dim}" data-rfx-jobtab="${esc(open.id)}">
         <div class="rfx-job-title" style="-webkit-line-clamp:3">${esc(title)}</div>
         ${metaRow}
+        ${applyHint}
         <div class="rfx-job-strip">${listCardInner(data, true, open.id)}</div>
         ${meta ? `<div class="rfx-jc-stats">${meta}</div>` : ""}
         ${stats ? `<div class="rfx-jc-stats">${stats}</div>` : ""}
@@ -1424,6 +1444,85 @@
       </div>
       ${propSection}
     `;
+  }
+
+  /* ---- Success page: confirm + record a submitted proposal ----
+     After the rep submits on Upwork, the SAME tab lands on …/nx/proposals/<proposalId>?success.
+     We read the proposal id from the URL and the remembered job + connects from this tab's
+     sessionStorage (set on /apply), then show a card. Nothing is written until the rep clicks
+     "Confirm & Save" — keeping this reactive. Deduped by proposal id so a reload can't re-record. */
+  function renderSubmitConfirm() {
+    const pid = proposalSuccessId();
+    const link = `https://www.upwork.com/nx/proposals/${pid}`;
+    const pending = readSubmitPending();
+    const saved = rfxSubmitState[pid] === "saved" || sessionStorage.getItem("rfx_saved_" + pid) === "1";
+    const saving = rfxSubmitState[pid] === "saving";
+    const repName = (rfxAuth && rfxAuth.user && (rfxAuth.user.full_name || rfxAuth.user.email)) || "you";
+    const jobTitle = (pending && pending.title) || "";
+    const connects = pending && pending.connects != null ? pending.connects : null;
+
+    const facts =
+      (jobTitle ? `<div class="rfx-jt-meta"><span class="rfx-jt-budget">${esc(jobTitle)}</span></div>` : "") +
+      `<div class="rfx-sub-rows">` +
+        `<div class="rfx-sub-row"><span>Submitted by</span><b>${esc(repName)}</b></div>` +
+        (connects != null ? `<div class="rfx-sub-row"><span>Connects spent</span><b>${esc(connects)}</b></div>` : "") +
+        `<div class="rfx-sub-row"><span>Proposal</span><a href="${esc(link)}" target="_blank" rel="noopener">#${esc(pid)} ↗</a></div>` +
+      `</div>`;
+
+    if (saved) {
+      return `<div class="rfx-context-note">Proposal recorded in ${SYSTEM_NAME}.</div>
+        <div class="rfx-job-card">
+          <div class="rfx-job-title">Proposal submitted ✓</div>
+          ${facts}
+          <div class="rfx-jc-line rfx-mt"><span class="rfx-tag-own mine">Saved to ${SYSTEM_NAME} ✓</span></div>
+        </div>`;
+    }
+    if (!pending || !pending.job_id) {
+      // Success opened without a remembered job (fresh page / different tab) — can't link it.
+      return `<div class="rfx-context-note">You submitted this proposal on Upwork.</div>
+        <div class="rfx-job-card">
+          <div class="rfx-job-title">Proposal submitted ✓</div>
+          ${facts}
+          <div class="rfx-add-note">Couldn't match this to a ${SYSTEM_NAME} job automatically — open the job from its posting first, then submit, to record it.</div>
+        </div>`;
+    }
+    return `<div class="rfx-context-note">You submitted this on Upwork — save it to ${SYSTEM_NAME}?</div>
+      <div class="rfx-job-card">
+        <div class="rfx-job-title">Proposal submitted — save to ${SYSTEM_NAME}?</div>
+        ${facts}
+        <div class="rfx-jc-acts rfx-mt">
+          <button class="rfx-btn primary full" data-submit-confirm ${saving ? "disabled" : ""}>${saving ? '<span class="rfx-spin"></span> Saving…' : "Confirm &amp; Save"}</button>
+        </div>
+        <div class="rfx-add-err hidden" data-submit-err></div>
+      </div>`;
+  }
+
+  async function confirmSubmitProposal(body) {
+    const pid = proposalSuccessId();
+    const pending = readSubmitPending();
+    if (!pid || !pending || !pending.job_id) return;
+    const err = body.querySelector("[data-submit-err]");
+    if (err) err.classList.add("hidden");
+    rfxSubmitState[pid] = "saving";
+    render(); // reflect the "Saving…" state
+    const resp = await apiSubmitProposal({
+      upwork_job_id: pending.job_id,
+      proposal_id: pid,
+      proposal_link: `https://www.upwork.com/nx/proposals/${pid}`,
+      connects_spent: pending.connects,
+    });
+    if (resp && resp.ok && !resp.error) {
+      rfxSubmitState[pid] = "saved";
+      try { sessionStorage.setItem("rfx_saved_" + pid, "1"); sessionStorage.removeItem("rfx_pending_submit"); } catch (e) { /* ignore */ }
+      // Drop any cached status for this job so the next check reflects "submitted".
+      if (rfxJobCache[pending.job_id]) delete rfxJobCache[pending.job_id];
+      render();
+    } else {
+      delete rfxSubmitState[pid];
+      render();
+      const e2 = root.querySelector("[data-submit-err]");
+      if (e2) { e2.textContent = (resp && resp.error) || "Couldn't save — try again."; e2.classList.remove("hidden"); }
+    }
   }
 
   // Numeric Upwork job id from the detail URL ciphertext (~0<version><numeric>).
@@ -1470,6 +1569,69 @@
   function isApplyPage() {
     const p = location.pathname;
     return /\/apply(\/|$)/.test(p) || /\/proposals\/job\/~/.test(p);
+  }
+
+  // The Upwork proposal-success / details page: …/nx/proposals/<proposalId>[?success]. The number
+  // is the PROPOSAL id — NOT the job id (the job cipher is gone from the URL by now). Note the
+  // apply page is /nx/proposals/job/~… (non-numeric after "proposals"), so it won't match here.
+  function proposalSuccessId() {
+    const m = location.pathname.match(/\/nx\/proposals\/(\d{6,})(?:\/|$)/);
+    return m ? m[1] : "";
+  }
+  function isProposalSuccessPage() { return !!proposalSuccessId(); }
+  // Only take over the Job tab with the "save this submission" card when it's actually a submit
+  // context: a fresh `?success`, a remembered pending apply (this tab), or an already-saved id.
+  // A plain proposal-details visit (from "My proposals") without any of these is left alone.
+  function shouldShowSubmitConfirm() {
+    const pid = proposalSuccessId();
+    if (!pid) return false;
+    return /success/i.test(location.search)
+      || !!readSubmitPending()
+      || sessionStorage.getItem("rfx_saved_" + pid) === "1";
+  }
+
+  // While on /apply, remember (in THIS tab's sessionStorage) the job + connects so that after the
+  // rep submits — same tab, a new URL that no longer carries the job id — we can still link the new
+  // proposal id back to this job. sessionStorage is per-tab, so concurrent applies in other tabs
+  // never mix. Cheap to re-run on each observer tick, keeping connects current (e.g. after a boost).
+  function captureApplyContext() {
+    if (!isApplyPage()) return;
+    const jobId = openJobNumericId();
+    if (!jobId) return;
+    const t = (document.body && document.body.innerText) || "";
+    const grab = (re) => { const m = t.match(re); return m ? Number(m[1]) : null; };
+    const connects = grab(/Total:\s*(\d+)\s*Connects/i)
+      ?? grab(/Required for proposal:\s*(\d+)\s*Connects/i)
+      ?? grab(/This proposal requires\s*(\d+)\s*Connects/i);
+    const rec = { job_id: jobId, cipher: openJobCipherId(), connects, title: readApplyJobTitle() || "", ts: Date.now() };
+    try { sessionStorage.setItem("rfx_pending_submit", JSON.stringify(rec)); } catch (e) { /* storage blocked — ignore */ }
+  }
+  function readSubmitPending() {
+    try { return JSON.parse(sessionStorage.getItem("rfx_pending_submit") || "null"); }
+    catch (e) { return null; }
+  }
+  // Refresh just the apply-page hint line (connects) in place — the observer calls this as the
+  // bidding box loads, without a full re-render (which would wipe the rep's inline edits).
+  function updateApplyHint() {
+    const el = root.querySelector("[data-rfx-apply-hint]");
+    if (!el) return;
+    const p = readSubmitPending();
+    const c = p && p.connects != null ? p.connects : null;
+    el.textContent = `✓ ${SYSTEM_NAME} will record this proposal after you submit${c != null ? ` · ${c} connects` : ""}.`;
+  }
+  // Ask the background to POST /jobs/submitted. Resolves to { ok } or { error }.
+  function apiSubmitProposal(payload) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "SUBMIT_PROPOSAL", payload }, (resp) => {
+          if (chrome.runtime.lastError || !resp) {
+            resolve({ error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || "No response from background" });
+            return;
+          }
+          resolve(resp);
+        });
+      } catch (e) { resolve({ error: String(e && e.message ? e.message : e) }); }
+    });
   }
 
   // Read the currently-open job on Upwork (read-only). Returns null when no job
@@ -1950,6 +2112,10 @@
     // job tab: wire the open job's card (Add / Generate)
     const jc = body.querySelector("[data-rfx-jobtab]");
     if (jc) wireListCard(jc, jc.getAttribute("data-rfx-jobtab"));
+
+    // success page: "Confirm & Save" records the submitted proposal against its job
+    const sc = body.querySelector("[data-submit-confirm]");
+    if (sc) sc.addEventListener("click", () => confirmSubmitProposal(body));
 
     // job tab: "Apply on Upwork" is a plain <a href> (the apply URL built from the open job's
     // URL). The rep clicks the link themselves — no scripted navigation/automation here.
@@ -2788,10 +2954,21 @@
           if (openNow) { rfxAwaitOpenForGen = null; rfxLastOpenId = openNow; surface = "job"; startGeneration(openNow, { stay: true }); }
           return;
         }
+        // Post-submit success page: show the "save to Reflex" confirm card once (per proposal id).
+        // Don't re-render on later DOM churn so the card's saving/saved state isn't wiped.
+        if (shouldShowSubmitConfirm()) {
+          const pid = proposalSuccessId();
+          if (surface !== "job" || rfxSuccessShownFor !== pid) {
+            surface = "job"; rfxSuccessShownFor = pid; render();
+          }
+          return;
+        }
         // The apply page maps to the Job tab (Proposal tab was merged in). Switch from the
         // listing once; once we're on the Job tab, DON'T re-render on later DOM churn so the
         // rep's inline cover-letter edits / sample picks aren't wiped.
         if (isApplyPage()) {
+          captureApplyContext(); // keep the remembered job + connects fresh (cheap) for the submit link
+          updateApplyHint();     // refresh the visible "will record · N connects" line in place
           if (surface === "listing") { surface = "job"; rfxLastOpenId = openJobNumericId(); render(); }
           return;
         }
@@ -2829,7 +3006,8 @@
   } catch (e) { /* storage API unavailable — gate still works via the refresh button */ }
 
   // The apply page opens in its own browser tab — auto-open the panel straight to
-  // the Proposal tab there, so the rep lands on exactly what they need.
-  if (isApplyPage()) openPanel();
+  // the Proposal tab there, so the rep lands on exactly what they need. Same on the
+  // post-submit success page, so the "save to Reflex" confirm card is right there.
+  if (isApplyPage() || shouldShowSubmitConfirm()) openPanel();
 
 })();
