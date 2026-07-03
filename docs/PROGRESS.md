@@ -8,6 +8,39 @@ to look to see where things stand. Newest entry at the top.
 
 ## Session log
 
+### 2026-07-03 — Listing tab now detects jobs on the find-work feed (best-matches / most-recent) ✅ working
+- **Problem:** on `upwork.com/nx/find-work/best-matches` and `/most-recent` the panel's Listing tab
+  showed "No Upwork jobs detected," though the page was full of jobs. Cause: `readVisibleTiles()`
+  only matched `ANCHORS.jobTile` = `[data-test='JobTile']`, which the search-results page uses but the
+  find-work feed does **not** render.
+- **Did (extension, `content/content.js`, read-only DOM):** added `findJobTiles()` — tries
+  `[data-test='JobTile']` (search pages, unchanged), then falls back through cards carrying
+  `[data-ev-job-uid]`, then `[data-test='job-tile-list']` direct children, then job-title links climbed
+  to their nearest `article/li/section`. Added `tileJobId(tile)` — reads `data-test-key`/
+  `data-ev-job-uid`, else extracts the numeric id from a `~0…` link cipher (same regex as
+  `openJobNumericId`, so feed ids match `jobs.upwork_job_id`). `readVisibleTiles()` uses both.
+  `injectTileTag()` (the old in-page strip injector) is dead code — left untouched.
+- **Still reactive-only:** pure DOM read + the existing CHECK_JOBS lookup to our Worker; no Upwork
+  writes, no timers.
+- **Verified:** confirmed live on best-matches — the feed jobs now list in the Listing tab.
+
+### 2026-07-03 — Extension panel is movable (bottom-right ↔ bottom-left)
+- **What:** the floating overlay (the "R" launcher + the slide-in panel) can now be moved to the
+  bottom-left corner instead of the fixed bottom-right, for reps who want it out of the way.
+- **UX:** a small **⇄ move** button in the panel header (next to ×) flips the side on click. The
+  launcher and panel always share the chosen side; the panel slides in from whichever edge it's on.
+  Chosen via a header toggle (not free-drag), so click-to-open is untouched.
+- **Did (extension, no build step — vanilla JS/CSS):**
+  - `content/content.css`: added `#rfx-launcher.rfx-left` (anchors left:22px) and
+    `#rfx-root.rfx-left` / `#rfx-root.rfx-left.rfx-open` (anchors left:12px, slides in from the left).
+    Added a `.rfx-move` button style; `.rfx-x` regrouped next to it.
+  - `content/content.js`: added the `.rfx-move` header button + `applySide()`; the choice persists in
+    `chrome.storage.local` under `rfx_side` ("right" default) and is re-applied on load. Pure UI —
+    no Upwork DOM interaction, stays reactive-only.
+- **Verify:** reload the unpacked extension, open on an Upwork page, click ⇄ — launcher + panel jump
+  to the left; reload the page and confirm it stayed left. (Bump `manifest.json` version before
+  re-sharing the zip.)
+
 ### 2026-06-25 — Align portal with the asset matcher (loom format) after colleague's `/generate` change
 - **Context:** a colleague added `matchAssets()` (`apps/api/src/matchAssets.ts`) — a single-job port
   of the n8n "Match Resources" node, called first in `POST /generate`. It scores `loom_videos` +

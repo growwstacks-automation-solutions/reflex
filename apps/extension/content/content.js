@@ -155,6 +155,7 @@
         <div class="rfx-name">${SYSTEM_NAME}</div>
         <div class="rfx-user">Sign in to sync your jobs</div>
       </div>
+      <button class="rfx-move" title="Move panel to the other side">⇄</button>
       <button class="rfx-x" title="Close">×</button>
     </div>
     <div class="rfx-switch">
@@ -170,6 +171,27 @@
   // Closing the panel / switching tabs leaves the Add card — if it was classified but not yet
   // saved, offer to save it first (see confirmLeaveAddCard).
   root.querySelector(".rfx-x").addEventListener("click", () => confirmLeaveAddCard(closePanel));
+
+  // ---------- panel side (bottom-right default, toggle to bottom-left) ----------
+  // Both the launcher and the panel share one side. The choice persists per browser
+  // profile in chrome.storage.local so it survives reloads. Pure UI — no Upwork touch.
+  let rfxSide = "right";
+  function applySide(side) {
+    rfxSide = side === "left" ? "left" : "right";
+    const left = rfxSide === "left";
+    launcher.classList.toggle("rfx-left", left);
+    root.classList.toggle("rfx-left", left);
+    const moveBtn = root.querySelector(".rfx-move");
+    if (moveBtn) moveBtn.title = `Move panel to the ${left ? "right" : "left"}`;
+  }
+  try {
+    chrome.storage.local.get("rfx_side", (r) => applySide(r && r.rfx_side));
+  } catch (e) { /* storage unavailable — stay on the default right side */ }
+  root.querySelector(".rfx-move").addEventListener("click", () => {
+    const next = rfxSide === "left" ? "right" : "left";
+    applySide(next);
+    try { chrome.storage.local.set({ rfx_side: next }); } catch (e) { /* ignore */ }
+  });
   root.querySelectorAll(".rfx-tab").forEach(tab => {
     tab.addEventListener("click", () => {
       const s = tab.dataset.s;
@@ -1167,9 +1189,51 @@
     return { type, budget };
   }
 
+  // Job tiles across Upwork surfaces. Search results (/nx/search/jobs) use
+  // [data-test='JobTile']; the find-work feed (/nx/find-work/best-matches, /most-recent)
+  // renders each job WITHOUT that attribute, so fall back through the cards that carry a
+  // job uid, the job-tile-list children, then the job-title links climbed to their nearest
+  // card. Read-only — same reactive contract as the rest of the mirror.
+  function findJobTiles() {
+    const direct = Array.from(document.querySelectorAll(ANCHORS.jobTile));
+    if (direct.length) return direct;
+    // Feed cards usually carry data-ev-job-uid on the card element itself.
+    const byUid = Array.from(document.querySelectorAll("[data-ev-job-uid]")).filter((el) =>
+      el.querySelector("a[href*='~0'], [data-test='job-tile-title-link'], h2 a, h3 a, h2, h3"));
+    if (byUid.length) return byUid;
+    // Upwork's find-work feed renders the cards as direct children of a job-tile-list.
+    const listed = Array.from(document.querySelectorAll(
+      "[data-test='job-tile-list'] > section, [data-test='job-tile-list'] > article, [data-test='job-tile-list'] > div"
+    )).filter((el) => el.querySelector("a, h2, h3"));
+    if (listed.length) return listed;
+    // Last resort: climb from each job-title link to its nearest card container, de-duped.
+    const seen = new Set();
+    const out = [];
+    document.querySelectorAll(
+      "[data-test='job-tile-title-link'], a[href*='/nx/job-details/'], a[href*='/jobs/~'], a[href*='/search/jobs/details/~']"
+    ).forEach((a) => {
+      const tile = a.closest("article, li, section");
+      if (tile && !seen.has(tile)) { seen.add(tile); out.push(tile); }
+    });
+    return out;
+  }
+
+  // Numeric Upwork job id for one tile: the search-tile attributes first (parity with
+  // the old path), else the numeric id embedded in a ~0… link cipher — the same
+  // extraction openJobNumericId() uses, so feed ids match jobs.upwork_job_id.
+  function tileJobId(tile) {
+    let id = (tile.getAttribute && (tile.getAttribute("data-test-key") || tile.getAttribute("data-ev-job-uid"))) || "";
+    if (!id) {
+      const a = tile.querySelector("a[href*='~0']");
+      const m = a && (a.getAttribute("href") || "").match(/~0\d(\d{6,})/);
+      if (m) id = m[1];
+    }
+    return id;
+  }
+
   function readVisibleTiles() {
-    return Array.from(document.querySelectorAll(ANCHORS.jobTile)).map((tile) => {
-      const jobId = tile.getAttribute("data-test-key") || tile.getAttribute("data-ev-job-uid") || "";
+    return findJobTiles().map((tile) => {
+      const jobId = tileJobId(tile);
       const titleEl = tile.querySelector(
         "[data-test='job-tile-title-link'], [data-test='job-title-link'], a[href*='/jobs/'], h2 a, h3 a, h2, h3"
       );

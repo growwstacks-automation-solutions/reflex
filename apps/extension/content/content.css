@@ -148,6 +148,8 @@
   background: var(--rfx-amber-t); border: 2px solid #fff;
 }
 #rfx-launcher.rfx-hidden { display: none; }
+/* left-side placement (rep toggled the panel to the bottom-left corner) */
+#rfx-launcher.rfx-left { right: auto; left: 22px; }
 
 /* ---------- panel ---------- */
 #rfx-root {
@@ -170,6 +172,9 @@
   font-size: 14px;
 }
 #rfx-root.rfx-open { transform: translateX(0); }
+/* left-side placement — anchor to the left edge and slide in from the left */
+#rfx-root.rfx-left { right: auto; left: 12px; transform: translateX(calc(-100% - 16px)); }
+#rfx-root.rfx-left.rfx-open { transform: translateX(0); }
 
 /* header */
 .rfx-header {
@@ -188,8 +193,14 @@
 .rfx-id .rfx-name { font-size: 14px; font-weight: 600; }
 .rfx-id .rfx-user { font-size: 11.5px; color: var(--rfx-text-3); }
 .rfx-id .rfx-user b { color: var(--rfx-green-t); font-weight: 600; }
-.rfx-x {
+.rfx-move {
   margin-left: auto; cursor: pointer; color: var(--rfx-text-3);
+  width: 28px; height: 28px; border-radius: 7px; border: none; background: transparent;
+  font-size: 15px; display: flex; align-items: center; justify-content: center;
+}
+.rfx-move:hover { background: var(--rfx-surface-2); color: var(--rfx-text); }
+.rfx-x {
+  margin-left: 2px; cursor: pointer; color: var(--rfx-text-3);
   width: 28px; height: 28px; border-radius: 7px; border: none; background: transparent;
   font-size: 18px; display: flex; align-items: center; justify-content: center;
 }
