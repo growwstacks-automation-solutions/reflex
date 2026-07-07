@@ -83,6 +83,15 @@
 #rfx-root .rfx-add-err{margin-top:10px;font-size:12px;color:var(--rfx-red-t);background:var(--rfx-red-b);
   border:1px solid var(--rfx-border);padding:8px 10px;border-radius:8px}
 #rfx-root .rfx-add-err.hidden{display:none}
+/* apply-page cue that submission tracking is armed */
+#rfx-root .rfx-apply-hint{margin:6px 0;font-size:11.5px;font-weight:600;color:var(--rfx-indigo);
+  background:var(--rfx-indigo-tint);border-radius:7px;padding:6px 9px;line-height:1.4}
+/* success-page "save this submission" confirm card */
+#rfx-root .rfx-sub-rows{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+#rfx-root .rfx-sub-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px}
+#rfx-root .rfx-sub-row>span{color:var(--rfx-text-2)}
+#rfx-root .rfx-sub-row>b{color:var(--rfx-text);font-weight:600}
+#rfx-root .rfx-sub-row a{color:var(--rfx-indigo);font-weight:600;text-decoration:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* AI classification card — pinned to the top of the Add form, highlighted */
 #rfx-root .rfx-prop-sec.rfx-add-ai{border:1px solid var(--rfx-indigo);background:var(--rfx-indigo-tint);
@@ -100,6 +109,16 @@
 #rfx-root .rfx-ai-veil{display:none}
 #rfx-root .rfx-ai-fields.rfx-blur ~ .rfx-ai-veil{display:flex;align-items:center;justify-content:center;
   position:absolute;inset:0;z-index:2;font-size:12px;font-weight:600;color:var(--rfx-indigo)}
+/* compact verdict block — Relevance + Quality on one row, short Reason */
+#rfx-root .rfx-ai-2col{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#rfx-root .rfx-ai-2col .rfx-add-frow{flex-direction:column;align-items:stretch;gap:3px;padding:2px 0}
+#rfx-root .rfx-ai-2col .rfx-add-k{min-width:0;font-size:11px}
+#rfx-root .rfx-add-ai .rfx-edit{min-height:48px;font-size:12px;padding:7px 9px}
+/* once checked, the AI fields read as static values rather than greyed-out, disabled inputs */
+#rfx-root .rfx-ai-locked .rfx-add-select:disabled,
+#rfx-root .rfx-ai-locked .rfx-edit[readonly]{opacity:1;color:var(--rfx-text);-webkit-text-fill-color:var(--rfx-text);
+  background:var(--rfx-surface);cursor:default;border-color:var(--rfx-border)}
+#rfx-root .rfx-ai-locked .rfx-add-select:disabled{appearance:none;-webkit-appearance:none;-moz-appearance:none;padding-right:9px}
 
 /* ---------- floating launcher ---------- */
 #rfx-launcher {
@@ -129,6 +148,8 @@
   background: var(--rfx-amber-t); border: 2px solid #fff;
 }
 #rfx-launcher.rfx-hidden { display: none; }
+/* left-side placement (rep toggled the panel to the bottom-left corner) */
+#rfx-launcher.rfx-left { right: auto; left: 22px; }
 
 /* ---------- panel ---------- */
 #rfx-root {
@@ -151,6 +172,9 @@
   font-size: 14px;
 }
 #rfx-root.rfx-open { transform: translateX(0); }
+/* left-side placement — anchor to the left edge and slide in from the left */
+#rfx-root.rfx-left { right: auto; left: 12px; transform: translateX(calc(-100% - 16px)); }
+#rfx-root.rfx-left.rfx-open { transform: translateX(0); }
 
 /* header */
 .rfx-header {
@@ -169,8 +193,14 @@
 .rfx-id .rfx-name { font-size: 14px; font-weight: 600; }
 .rfx-id .rfx-user { font-size: 11.5px; color: var(--rfx-text-3); }
 .rfx-id .rfx-user b { color: var(--rfx-green-t); font-weight: 600; }
-.rfx-x {
+.rfx-move {
   margin-left: auto; cursor: pointer; color: var(--rfx-text-3);
+  width: 28px; height: 28px; border-radius: 7px; border: none; background: transparent;
+  font-size: 15px; display: flex; align-items: center; justify-content: center;
+}
+.rfx-move:hover { background: var(--rfx-surface-2); color: var(--rfx-text); }
+.rfx-x {
+  margin-left: 2px; cursor: pointer; color: var(--rfx-text-3);
   width: 28px; height: 28px; border-radius: 7px; border: none; background: transparent;
   font-size: 18px; display: flex; align-items: center; justify-content: center;
 }

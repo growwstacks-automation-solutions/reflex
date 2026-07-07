@@ -135,6 +135,8 @@
   let rfxAddSaved = false;  // true once the open Add card has been persisted (dedupes save-on-leave)
   let rfxAwaitOpenForAdd = null; // jobId the rep wants to add from the listing — waiting for them to open it
   let rfxAwaitOpenForGen = null; // jobId the rep wants to generate for from the listing — waiting for them to open it
+  let rfxSubmitState = {};    // proposalId -> "saving" | "saved" (success-page confirm card state)
+  let rfxSuccessShownFor = ""; // proposalId we've already rendered the success card for (render-once guard)
 
   /* ---------- build launcher ---------- */
   const launcher = document.createElement("button");
@@ -153,6 +155,7 @@
         <div class="rfx-name">${SYSTEM_NAME}</div>
         <div class="rfx-user">Sign in to sync your jobs</div>
       </div>
+      <button class="rfx-move" title="Move panel to the other side">⇄</button>
       <button class="rfx-x" title="Close">×</button>
     </div>
     <div class="rfx-switch">
@@ -168,6 +171,27 @@
   // Closing the panel / switching tabs leaves the Add card — if it was classified but not yet
   // saved, offer to save it first (see confirmLeaveAddCard).
   root.querySelector(".rfx-x").addEventListener("click", () => confirmLeaveAddCard(closePanel));
+
+  // ---------- panel side (bottom-right default, toggle to bottom-left) ----------
+  // Both the launcher and the panel share one side. The choice persists per browser
+  // profile in chrome.storage.local so it survives reloads. Pure UI — no Upwork touch.
+  let rfxSide = "right";
+  function applySide(side) {
+    rfxSide = side === "left" ? "left" : "right";
+    const left = rfxSide === "left";
+    launcher.classList.toggle("rfx-left", left);
+    root.classList.toggle("rfx-left", left);
+    const moveBtn = root.querySelector(".rfx-move");
+    if (moveBtn) moveBtn.title = `Move panel to the ${left ? "right" : "left"}`;
+  }
+  try {
+    chrome.storage.local.get("rfx_side", (r) => applySide(r && r.rfx_side));
+  } catch (e) { /* storage unavailable — stay on the default right side */ }
+  root.querySelector(".rfx-move").addEventListener("click", () => {
+    const next = rfxSide === "left" ? "right" : "left";
+    applySide(next);
+    try { chrome.storage.local.set({ rfx_side: next }); } catch (e) { /* ignore */ }
+  });
   root.querySelectorAll(".rfx-tab").forEach(tab => {
     tab.addEventListener("click", () => {
       const s = tab.dataset.s;
@@ -190,6 +214,10 @@
         if (isApplyPage()) {
           surface = "job";                      // apply page -> Job tab (Proposal tab merged in)
           rfxLastOpenId = openJobNumericId();
+          captureApplyContext();                // remember job + connects for the post-submit link
+        } else if (shouldShowSubmitConfirm()) {
+          surface = "job";                      // post-submit success page -> the confirm card
+          rfxSuccessShownFor = proposalSuccessId();
         } else {
           const openId = openJobNumericId();
           if (openId) { surface = "job"; rfxLastOpenId = openId; } // a job is open -> show it
@@ -404,6 +432,123 @@
     return { country: parts[0] || "", city: parts[1] || "" };
   }
 
+  // Locate the "About the client" sidebar. Upwork gives it a stable container test-id
+  // (data-test="about-client-container AboutClientUserShared AboutClientUser"); fall back to the
+  // "About the client" heading (an <h5>) if the markup ever changes. Returns the element, or null.
+  function findClientSection() {
+    const direct = document.querySelector(
+      "[data-test~='about-client-container'], .cfe-ui-job-about-client, [data-test*='AboutClientUser'], [data-qa='client-location']"
+    );
+    if (direct) return direct.closest("[data-test~='about-client-container'], .cfe-ui-job-about-client") || direct;
+    const h = Array.from(document.querySelectorAll("h2, h3, h4, h5, strong, div, span, p"))
+      .find((el) => { const t = (el.textContent || "").trim(); return /^about the client$/i.test(t) && t.length < 30; });
+    if (!h) return null;
+    let el = h;
+    for (let i = 0; i < 7 && el.parentElement; i++) {
+      el = el.parentElement;
+      const t = el.textContent || "";
+      if (/(payment method verified|jobs posted|total spent|member since|hire rate)/i.test(t) && !/proposal settings/i.test(t)) return el;
+    }
+    return null;
+  }
+
+  // ISO-2 code for the common client countries (best-effort; blank if unknown -> rep can edit).
+  const COUNTRY_CODES = {
+    "united states": "US", "united kingdom": "GB", "united arab emirates": "AE", "canada": "CA",
+    "australia": "AU", "india": "IN", "germany": "DE", "france": "FR", "netherlands": "NL",
+    "spain": "ES", "italy": "IT", "ireland": "IE", "switzerland": "CH", "sweden": "SE",
+    "norway": "NO", "denmark": "DK", "belgium": "BE", "austria": "AT", "poland": "PL",
+    "portugal": "PT", "singapore": "SG", "new zealand": "NZ", "israel": "IL", "saudi arabia": "SA",
+    "qatar": "QA", "kuwait": "KW", "south africa": "ZA", "brazil": "BR", "mexico": "MX",
+    "japan": "JP", "china": "CN", "hong kong": "HK", "south korea": "KR", "croatia": "HR",
+    "greece": "GR", "turkey": "TR", "ukraine": "UA", "romania": "RO", "philippines": "PH",
+    "pakistan": "PK", "bangladesh": "BD", "nigeria": "NG", "egypt": "EG", "finland": "FI",
+    "czech republic": "CZ", "hungary": "HU", "indonesia": "ID", "malaysia": "MY", "thailand": "TH",
+  };
+  function countryCode(name) {
+    return COUNTRY_CODES[String(name || "").trim().toLowerCase()] || "";
+  }
+
+  // Parse the client facts the Add form keeps: country, city, timezone, spend, payment-verified,
+  // hires. Upwork's per-field selectors drift, so we read the sidebar's TEXT LINES instead — the
+  // client location renders as "<Country>\n<City>  <local time>", reliable across layouts.
+  function readClientInfo(section) {
+    const out = { country: "", city: "", timezone: "", spend: "", payment_verified: null, total_hired: "" };
+    if (!section) return out;
+    const T = (el) => (el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "");
+    const sectionTxt = T(section);
+    out.payment_verified = /payment method verified/i.test(sectionTxt) ? true : null;
+
+    // Location: <li data-qa="client-location"> has <strong>Country</strong> and a <div> with the
+    // city span + a [data-test="LocalTime"] span. Use the structure — no text guessing.
+    const locEl = section.querySelector("[data-qa='client-location']");
+    if (locEl) {
+      out.country = T(locEl.querySelector("strong")) || out.country;
+      const timeEl = locEl.querySelector("[data-test='LocalTime']");
+      const localTime = T(timeEl);
+      const cityEl = Array.from(locEl.querySelectorAll("span")).find(
+        (s) => s !== timeEl && T(s) && !/\b\d{1,2}:\d{2}\b/.test(T(s))
+      );
+      out.city = T(cityEl) || T(locEl.querySelector("div")).replace(/\s*\d{1,2}:\d{2}\s*(?:am|pm)?\s*$/i, "").trim();
+      // Approximate the client's UTC offset from their shown local time vs current UTC.
+      const tm = localTime.match(/(\d{1,2}):(\d{2})\s*(am|pm)/i);
+      if (tm) {
+        let h = Number(tm[1]) % 12; if (/pm/i.test(tm[3])) h += 12;
+        const now = new Date();
+        let diff = (h * 60 + Number(tm[2])) - (now.getUTCHours() * 60 + now.getUTCMinutes());
+        if (diff > 720) diff -= 1440; if (diff <= -720) diff += 1440;
+        const off = Math.round(diff / 30) * 30;
+        const ah = Math.floor(Math.abs(off) / 60); const am = Math.abs(off) % 60;
+        out.timezone = `UTC${off >= 0 ? "+" : "-"}${ah}${am ? ":" + String(am).padStart(2, "0") : ""}`;
+      }
+    }
+
+    // Spend / hires: prefer the structured cells, fall back to the section text.
+    const spendTxt = T(section.querySelector("[data-qa='client-spend']")) || sectionTxt;
+    const sm = spendTxt.match(/(\$[\d.,]+\s*[kmb]?\+?)\s*(?:total\s*)?spent/i);
+    if (sm) out.spend = sm[1].replace(/\s+/g, "").trim();
+    const hiresTxt = T(section.querySelector("[data-qa='client-hires']")) || sectionTxt;
+    const hm = hiresTxt.match(/(\d+)\s+hires?\b/i);
+    if (hm) out.total_hired = Number(hm[1]);
+    return out;
+  }
+
+  // ISO YYYY-MM-DD for a Date.
+  function isoDate(d) { return d.toISOString().slice(0, 10); }
+  // Upwork's project-length buckets -> an approximate engagement in weeks (the column is numeric).
+  function durationToWeeks(s) {
+    const t = String(s || "").toLowerCase();
+    if (!t) return "";
+    if (/less than 1 month/.test(t)) return 4;
+    if (/1 to 3 months/.test(t)) return 12;
+    if (/3 to 6 months/.test(t)) return 24;
+    if (/more than 6 months|6\+\s*months/.test(t)) return 26;
+    const r = t.match(/(\d+)\s*to\s*(\d+)\s*months?/);
+    if (r) return Math.round(((Number(r[1]) + Number(r[2])) / 2) * 4.345);
+    const one = t.match(/(\d+)\s*months?/);
+    if (one) return Math.round(Number(one[1]) * 4.345);
+    return "";
+  }
+  // "Posted Jun 30, 2026" or relative "Posted 3 days ago"/"2 weeks ago"/"yesterday" -> YYYY-MM-DD.
+  function postedToISO(s) {
+    const t = String(s || "").trim();
+    if (!t) return "";
+    const abs = t.match(/([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})/);
+    if (abs) { const d = new Date(abs[1]); if (!isNaN(d.getTime())) return isoDate(d); }
+    const now = new Date();
+    if (/yesterday/i.test(t)) { now.setDate(now.getDate() - 1); return isoDate(now); }
+    const rel = t.match(/(\d+)\s*(minute|hour|day|week|month)s?\s*ago/i);
+    if (rel) {
+      const n = Number(rel[1]); const u = rel[2].toLowerCase();
+      if (u === "day") now.setDate(now.getDate() - n);
+      else if (u === "week") now.setDate(now.getDate() - n * 7);
+      else if (u === "month") now.setMonth(now.getMonth() - n);
+      // minutes / hours -> still today
+      return isoDate(now);
+    }
+    return "";
+  }
+
   function collectAddData(jobId, fallbackTitle) {
     const open = readOpenJob();
     if (!(open && open.id === jobId)) {
@@ -414,14 +559,33 @@
     const text = (region.textContent || "").replace(/\s+/g, " ");
     const pick = (re) => { const m = text.match(re); return m ? (m[1] != null ? m[1] : m[0]).trim() : ""; };
 
-    const contract_type = /fixed-price/i.test(text) ? "Fixed-price" : (/\bhourly\b/i.test(text) ? "Hourly" : "");
-    const budget_text = pick(/\$[\d.,]+(?:\.\d{2})?(?:\s*-\s*\$?[\d.,]+)?(?:\s*\/\s*hr)?/i);
-    const expRaw = pick(/\b(entry level|intermediate|expert)\b/i).toLowerCase();
+    // Type + budget come from the SAME page parse the Job card shows (parseTileBudget), so the
+    // saved record matches what the rep sees — not the old loose "/fixed-price/" + first-$ guess.
+    const contract_type = open.type || "";
+    const budget_text = open.budget || pick(/\$[\d.,]+(?:\.\d{2})?(?:\s*-\s*\$?[\d.,]+)?(?:\s*\/\s*hr)?/i);
+
+    // Experience / workload / duration: prefer the parsed meta grid (open.meta — the same chips the
+    // card shows), fall back to scanning the region text. This is the Upwork "Experience Level /
+    // Duration / hrs-per-week" block, which used to come through empty.
+    const metaStr = (open.meta || []).join(" · ");
+    const grab = (re) => { const m = (metaStr.match(re) || text.match(re)); return m ? (m[1] != null ? m[1] : m[0]).trim() : ""; };
+    const expRaw = grab(/\b(entry level|intermediate|expert)\b/i).toLowerCase();
     const experience_level = expRaw === "entry level" ? "Entry level"
       : expRaw === "intermediate" ? "Intermediate" : expRaw === "expert" ? "Expert" : "";
-    const client_spend = pick(/\$[\d.,]+\s*[kmb]?\+?\s*(?:total\s*)?spent/i);
-    const client_payment_verified = /payment (?:method )?verified/i.test(text) ? true : null;
-    const loc = readClientLocation(region);
+    // Hourly workload commitment ("Less than 30 hrs/week", "More than 30 hrs/week").
+    const hourly_budget_type = grab(/(?:less than|more than|up to)\s*\d+\s*hrs?\/week/i);
+    // Project duration bucket -> engagement weeks (approx).
+    const engagement_weeks = durationToWeeks(grab(/(less than 1 month|1 to 3 months|3 to 6 months|more than 6 months|6\+\s*months|\d+\s*to\s*\d+\s*months?)/i));
+    // Posted date -> YYYY-MM-DD (page shows it relative or absolute).
+    const posted_at = postedToISO(open.posted) || postedToISO(pick(/Posted\b[^·|]{0,30}?(?:ago|\d{4})/i));
+
+    // Client facts come ONLY from the "About the client" sidebar — never scanned from elsewhere on
+    // the page (that's how the job's "Worldwide" header or a stray "$…spent" leaked in before). If
+    // the section isn't present, the client fields stay blank (editable) rather than guessed.
+    const cinfo = readClientInfo(findClientSection());
+    const client_spend = cinfo.spend;
+    const client_payment_verified = cinfo.payment_verified;
+    const loc = { country: cinfo.country, city: cinfo.city };
 
     // Structured budget: pull the $ number(s) out of budget_text and route by contract type.
     const moneyNums = (budget_text.match(/[\d.,]+/g) || [])
@@ -436,8 +600,7 @@
       if (moneyNums[0] != null) fixed_amount = moneyNums[0];
       if (moneyNums[1] != null) fixed_amount_max = moneyNums[1];
     }
-    const hiresM = text.match(/(\d+)\s+hires?\b/i);
-    const total_hired = hiresM ? Number(hiresM[1]) : "";
+    const total_hired = cinfo.total_hired; // from the "About the client" section only
 
     return {
       upwork_job_id: jobId,
@@ -454,10 +617,11 @@
       client_payment_verified,
       // Structured budget / terms (auto where parseable; editable otherwise)
       fixed_amount, fixed_amount_max, fixed_currency,
-      hourly_min, hourly_max, hourly_budget_type: "",
-      engagement_weeks: "", posted_at: "",
-      // Client detail (not reliably on the page — editable)
-      client_country_code: "", client_timezone: "", client_billing_type: "", last_client_activity: "",
+      hourly_min, hourly_max, hourly_budget_type,
+      engagement_weeks, posted_at,
+      // Client detail (timezone approximated from the client's local time; rest editable)
+      client_country_code: countryCode(loc.country), client_timezone: cinfo.timezone || "",
+      client_billing_type: "", last_client_activity: "",
       // Activity / competition (mostly editable; total_hired best-effort)
       has_bids: null, bid_min_rate: "", bid_avg_rate: "", bid_max_rate: "",
       invites_sent: "", total_invited_to_interview: "", total_hired,
@@ -517,23 +681,24 @@
     const hb = d.has_bids === true ? "true" : d.has_bids === false ? "false" : "";
 
     return `
-      <div class="rfx-context-note">All the fields ${SYSTEM_NAME} will save — run <b>Check relevance</b> to classify, edit anything, then confirm. The job is added to your board and claimed by you.</div>
+      <div class="rfx-context-note">${SYSTEM_NAME} auto-checks relevance. Review the captured fields below, then confirm — the job is added to your board and claimed by you.</div>
 
       <div class="rfx-prop-sec rfx-add-ai">
         <div class="rfx-add-aihead">
-          <div class="rfx-section-label">AI classification — check before adding (editable)</div>
-          <button class="rfx-btn primary sm" data-classify><span class="rfx-spark">✦</span> Check relevance</button>
+          <div class="rfx-section-label">AI classification</div>
+          <button class="rfx-btn primary sm" data-classify><span class="rfx-spark">✦</span> Re-check</button>
         </div>
         <div class="rfx-add-aicost hidden" data-aicost></div>
         <div class="rfx-ai-wrap">
-          <div class="rfx-ai-fields${rfxAddClass ? "" : " rfx-blur"}" data-ai-fields>
-            ${sel("verdict", "Relevance", d.verdict || ai.verdict, [{ v: "relevant", t: "Relevant" }, { v: "review", t: "Needs review" }, { v: "irrelevant", t: "Not a fit" }])}
-            ${sel("quality", "Quality", d.quality || ai.quality, [{ v: "good", t: "Good" }, { v: "medium", t: "Medium" }, { v: "poor", t: "Poor" }])}
+          <div class="rfx-ai-fields${rfxAddClass ? " rfx-ai-locked" : " rfx-blur"}" data-ai-fields>
+            <div class="rfx-ai-2col">
+              ${sel("verdict", "Relevance", d.verdict || ai.verdict, [{ v: "relevant", t: "Relevant" }, { v: "review", t: "Needs review" }, { v: "irrelevant", t: "Not a fit" }])}
+              ${sel("quality", "Quality", d.quality || ai.quality, [{ v: "good", t: "Good" }, { v: "medium", t: "Medium" }, { v: "poor", t: "Poor" }])}
+            </div>
             ${area("reason", "Reason", d.reason || ai.reason)}
           </div>
-          <div class="rfx-ai-veil">Run <b>&nbsp;Check relevance&nbsp;</b> to reveal</div>
+          <div class="rfx-ai-veil">Checking relevance…</div>
         </div>
-        <div class="rfx-add-note">Taxonomy (tool · use case · department · industry) is set later by classification.</div>
       </div>
 
       <div class="rfx-prop-sec">
@@ -723,7 +888,10 @@
     const confirm = body.querySelector("[data-add-confirm]");
     if (confirm) confirm.addEventListener("click", () => submitAdd(confirm));
     const classifyBtn = body.querySelector("[data-classify]");
-    if (classifyBtn) classifyBtn.addEventListener("click", () => runClassify(classifyBtn, body));
+    if (classifyBtn) {
+      classifyBtn.addEventListener("click", () => runClassify(classifyBtn, body));
+      runClassify(classifyBtn, body); // auto-run on open — the rep no longer clicks "Check relevance"
+    }
   }
 
   // Job-tab "Add to Reflex": the same Add review process, but the job card slides to the
@@ -750,7 +918,10 @@
     const confirm = body.querySelector("[data-add-confirm]");
     if (confirm) confirm.addEventListener("click", () => submitAdd(confirm));
     const classifyBtn = body.querySelector("[data-classify]");
-    if (classifyBtn) classifyBtn.addEventListener("click", () => runClassify(classifyBtn, body));
+    if (classifyBtn) {
+      classifyBtn.addEventListener("click", () => runClassify(classifyBtn, body));
+      runClassify(classifyBtn, body); // auto-run on open — the rep no longer clicks "Check relevance"
+    }
   }
 
   // The collapsed "Adding this job" header card. Title is always shown; the chevron expands
@@ -848,9 +1019,15 @@
     setVal("verdict", r.verdict);
     setVal("quality", r.quality);
     setVal("reason", r.reason);
-    // Reveal the now-filled AI fields.
+    // Reveal the now-filled AI fields and LOCK them — the model's verdict isn't hand-editable.
+    // (disabled selects / readonly textarea still report .value, so the Add payload keeps them.)
     const fields = body.querySelector("[data-ai-fields]");
-    if (fields) fields.classList.remove("rfx-blur");
+    if (fields) {
+      fields.classList.remove("rfx-blur");
+      fields.classList.add("rfx-ai-locked");
+      fields.querySelectorAll("select").forEach((el) => { el.disabled = true; });
+      fields.querySelectorAll("textarea, input").forEach((el) => { el.readOnly = true; });
+    }
     // Remember the cost so Confirm add persists it to jobs.token_cost_inr / cache_status.
     rfxAddClass = { token_cost_inr: r.cost_inr, cache_status: r.cache_status, tokens: r.tokens };
     if (cost) {
@@ -964,9 +1141,99 @@
 
   // Read the jobs currently on the Upwork results page. Best-effort selectors with
   // text-pattern fallbacks (Upwork's tile testids drift) — read-only, never writes.
+  // Budget / contract type — exactly what the Upwork tile/detail text shows. Hourly appears in
+  // two forms: "Hourly: $50.00 - $95.00" (no /hr suffix) and "$30/hr"; fixed shows
+  // "Est. budget: $500.00". The [KMB] suffix is attached to the number (no \s* gap) so it can't
+  // grab the leading letter of the next word (the old "$1,200.00 B" bug from "…BUILD").
+  function parseTileBudget(text) {
+    const t = String(text || "");
+    // Decide the type from the tile's BUDGET facts, not a loose word match — the description
+    // and skills routinely contain "hourly" or "fixed price", and either one would otherwise
+    // flip the label. Priority: a budget estimate ⇒ fixed (only fixed tiles show "Est. budget");
+    // an hourly rate or the "Hourly:/Hourly -" meta tag ⇒ hourly; bare "fixed price" only last.
+    const estBudget = t.match(/Est(?:imated)?\.?\s*budget\s*:?\s*(\$[\d.,]+[KMB]?)/i); // fixed-only fact
+    // Hourly rate in any of its layouts: listing "Hourly: $x - $y", the job-details layout where
+    // the amount comes BEFORE the label ("$x - $y Hourly"), or finally "$x/hr". The label-bound
+    // forms are tried FIRST, and the bare "$x/hr" excludes the client's "$x/hr avg rate paid" — so
+    // the "About the client" average hourly rate is never mistaken for the job's rate.
+    const hourlyRate = t.match(/hourly\s*:?\s*(\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?)/i)
+                    || t.match(/(\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?)\s*hourly\b/i)
+                    || t.match(/(\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?)\s*\/\s*hr\b(?!\s*(?:avg|rate|paid))/i);
+    // "Hourly" meta tag — anchored to what follows it on the tile line (an experience level,
+    // "Est…", or a "$" rate). Upwork renders the "·"/"-" separators with CSS, so textContent has
+    // none — we can't require one. Anchoring to the next meta token still rejects a stray "hourly"
+    // sitting in the description (it'd be followed by ordinary prose, not a level/Est/$).
+    // Also catches the job-details / apply layout where "Hourly" is a sub-label: "Hourly range"
+    // next to the rate, or the contract label sitting right after the weekly hours
+    // ("Less than 30 hrs/week  Hourly") — the only reliable no-rate hourly signal on those pages.
+    const hourlyTag = /\bhourly[\s:·•\-–]*(?:entry|intermediate|expert|est\b|range\b|\$)/i.test(t)
+                   || /hrs?\/week\s*hourly\b/i.test(t);
+    let type = "";
+    let budget = "";
+    if (estBudget) {
+      type = "Fixed-price";
+      budget = estBudget[1].trim();
+    } else if (hourlyRate || hourlyTag) {
+      type = "Hourly";
+      if (hourlyRate) budget = hourlyRate[1].replace(/\s+/g, " ").trim();
+    } else if (/\bfixed[- ]price\b/i.test(t)) {
+      type = "Fixed-price"; // fixed job with no visible budget
+    }
+    // Fixed-price amount without "Est. budget" — the job-details page shows "$700.00 Fixed-price"
+    // (amount beside the tag, not under an "Est. budget" label). Fill it in when we know it's fixed.
+    if (type === "Fixed-price" && !budget) {
+      const m = t.match(/(\$[\d.,]+[KMB]?)\s*Fixed[- ]price/i)        // "$700.00 Fixed-price"
+             || t.match(/Fixed[- ]price\s*:?\s*(\$[\d.,]+[KMB]?)/i);  // "Fixed-price: $700.00"
+      if (m) budget = m[1].trim();
+    }
+    return { type, budget };
+  }
+
+  // Job tiles across Upwork surfaces. Search results (/nx/search/jobs) use
+  // [data-test='JobTile']; the find-work feed (/nx/find-work/best-matches, /most-recent)
+  // renders each job WITHOUT that attribute, so fall back through the cards that carry a
+  // job uid, the job-tile-list children, then the job-title links climbed to their nearest
+  // card. Read-only — same reactive contract as the rest of the mirror.
+  function findJobTiles() {
+    const direct = Array.from(document.querySelectorAll(ANCHORS.jobTile));
+    if (direct.length) return direct;
+    // Feed cards usually carry data-ev-job-uid on the card element itself.
+    const byUid = Array.from(document.querySelectorAll("[data-ev-job-uid]")).filter((el) =>
+      el.querySelector("a[href*='~0'], [data-test='job-tile-title-link'], h2 a, h3 a, h2, h3"));
+    if (byUid.length) return byUid;
+    // Upwork's find-work feed renders the cards as direct children of a job-tile-list.
+    const listed = Array.from(document.querySelectorAll(
+      "[data-test='job-tile-list'] > section, [data-test='job-tile-list'] > article, [data-test='job-tile-list'] > div"
+    )).filter((el) => el.querySelector("a, h2, h3"));
+    if (listed.length) return listed;
+    // Last resort: climb from each job-title link to its nearest card container, de-duped.
+    const seen = new Set();
+    const out = [];
+    document.querySelectorAll(
+      "[data-test='job-tile-title-link'], a[href*='/nx/job-details/'], a[href*='/jobs/~'], a[href*='/search/jobs/details/~']"
+    ).forEach((a) => {
+      const tile = a.closest("article, li, section");
+      if (tile && !seen.has(tile)) { seen.add(tile); out.push(tile); }
+    });
+    return out;
+  }
+
+  // Numeric Upwork job id for one tile: the search-tile attributes first (parity with
+  // the old path), else the numeric id embedded in a ~0… link cipher — the same
+  // extraction openJobNumericId() uses, so feed ids match jobs.upwork_job_id.
+  function tileJobId(tile) {
+    let id = (tile.getAttribute && (tile.getAttribute("data-test-key") || tile.getAttribute("data-ev-job-uid"))) || "";
+    if (!id) {
+      const a = tile.querySelector("a[href*='~0']");
+      const m = a && (a.getAttribute("href") || "").match(/~0\d(\d{6,})/);
+      if (m) id = m[1];
+    }
+    return id;
+  }
+
   function readVisibleTiles() {
-    return Array.from(document.querySelectorAll(ANCHORS.jobTile)).map((tile) => {
-      const jobId = tile.getAttribute("data-test-key") || tile.getAttribute("data-ev-job-uid") || "";
+    return findJobTiles().map((tile) => {
+      const jobId = tileJobId(tile);
       const titleEl = tile.querySelector(
         "[data-test='job-tile-title-link'], [data-test='job-title-link'], a[href*='/jobs/'], h2 a, h3 a, h2, h3"
       );
@@ -987,14 +1254,7 @@
       const description = descEl ? descEl.textContent.trim().replace(/\s+/g, " ") : "";
 
       // Budget / contract type — same facts the real Upwork tile shows.
-      const isFixed = /fixed[- ]price/i.test(text);
-      const isHourly = /\bhourly\b/i.test(text);
-      const type = isFixed ? "Fixed-price" : (isHourly ? "Hourly" : "");
-      const hr = text.match(/\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?\s*\/\s*hr/i);
-      const est = text.match(/Est(?:imated)?\.?\s*budget:?\s*\$[\d.,]+\s*[KMB]?/i);
-      const budget = hr
-        ? hr[0].replace(/\s+/g, " ").trim()
-        : est ? est[0].replace(/Est(?:imated)?\.?\s*budget:?\s*/i, "").replace(/\s+/g, " ").trim() : "";
+      const { type, budget } = parseTileBudget(text);
 
       return { jobId, title, posted, description, type, budget };
     });
@@ -1010,6 +1270,18 @@
       return `<div class="rfx-jc-line"><span class="rfx-jc-note">${SYSTEM_NAME} · not synced</span></div>`;
     }
     if (!data.inReflex) {
+      // On the apply page the page hides the client block + full job details, so Adding here would
+      // save a poor record (and the wrong title). Instead of Add, send the rep to the real job
+      // posting — Add works properly there.
+      if (jobTab && isApplyPage()) {
+        const url = jobPostingUrl();
+        return `<div class="rfx-jc-line"><span class="rfx-jc-note">Open the job posting to add it to ${SYSTEM_NAME}</span></div>` +
+          `<div class="rfx-jc-acts">` +
+          (url
+            ? `<a class="rfx-btn primary full" href="${esc(url)}" target="_blank" rel="noopener">View job posting →</a>`
+            : `<span class="rfx-jc-note">Job posting link not found on this page.</span>`) +
+          `</div>`;
+      }
       // Job tab: both actions, but Generate is locked until the job is added.
       if (jobTab) {
         return `<div class="rfx-jc-line"><span class="rfx-jc-note">Not in ${SYSTEM_NAME} yet</span></div>` +
@@ -1166,6 +1438,9 @@
      region) — READ-ONLY — and shows it here with its Reflex strip pulled from the
      DB (CHECK_JOBS), exactly like a Listing card but for the single open job. */
   function renderJob() {
+    // Upwork's post-submit success page — show the "save this submission to Reflex" confirm card
+    // instead of the normal open-job card (this page has no job open, only a proposal id).
+    if (shouldShowSubmitConfirm()) return renderSubmitConfirm();
     const open = readOpenJob();
     if (!open) {
       return `<div class="rfx-context-note">Open a job on Upwork — click any job to view it — and its ${SYSTEM_NAME} details will appear here, with its strip from the database.</div>`;
@@ -1180,9 +1455,16 @@
     // /jobs/proposal. On the job-details page the page read is good, so prefer it.
     const facts = rfxJobFacts[open.id] || {};
     const onApply = isApplyPage();
+    // The DB's budget_text sometimes holds a bare type word ("Hourly"/"Fixed") rather than an
+    // amount — only trust it as a budget when it actually contains a number, so we never render
+    // "Hourly · Hourly". The page parse (open.budget) is always a "$…" amount or "".
+    const factsBudget = /\d/.test(String(facts.budget || "")) ? facts.budget : "";
     const title = onApply ? (facts.title || open.title || "(this job)") : (open.title || facts.title || "(this job)");
-    const dType = onApply ? (facts.type || "") : (open.type || facts.type || "");
-    const dBudget = onApply ? (facts.budget || "") : (open.budget || facts.budget || "");
+    // Type/budget: always prefer the PAGE parse. The apply page hides them from the H1/title but
+    // still shows them in its "Job details" sidebar ("$10 - $25 · Hourly range", "$4,500 ·
+    // Fixed-price"), which readOpenJob reads — so we no longer fall back to the DB's bare word here.
+    const dType = open.type || facts.type || "";
+    const dBudget = open.budget || factsBudget;
     const dPosted = onApply ? fmtPosted(facts.posted) : (open.posted || fmtPosted(facts.posted));
     const dDesc = onApply ? (facts.description || "") : (open.description || facts.description || "");
     // Compact facts up top (type · price, posted date) — same as a Listing tile.
@@ -1202,11 +1484,22 @@
           ${renderProposal(true)}
         </div>`
       : "";
+    // On the apply page, show that Reflex has armed submission tracking (with the connects it
+    // captured) so the rep knows it'll be recorded after they submit. Text is kept live by the
+    // observer (updateApplyHint) as the bidding box loads/changes.
+    let applyHint = "";
+    if (onApply) {
+      captureApplyContext(); // ensure the pending record (connects) is fresh before we read it
+      const p = readSubmitPending();
+      const c = p && p.connects != null ? p.connects : null;
+      applyHint = `<div class="rfx-apply-hint" data-rfx-apply-hint>✓ ${SYSTEM_NAME} will record this proposal after you submit${c != null ? ` · ${esc(c)} connects` : ""}.</div>`;
+    }
     return `
       <div class="rfx-context-note">This job — read from the Upwork page. Status from ${SYSTEM_NAME}.</div>
       <div class="rfx-job-card${dim}" data-rfx-jobtab="${esc(open.id)}">
         <div class="rfx-job-title" style="-webkit-line-clamp:3">${esc(title)}</div>
         ${metaRow}
+        ${applyHint}
         <div class="rfx-job-strip">${listCardInner(data, true, open.id)}</div>
         ${meta ? `<div class="rfx-jc-stats">${meta}</div>` : ""}
         ${stats ? `<div class="rfx-jc-stats">${stats}</div>` : ""}
@@ -1215,6 +1508,85 @@
       </div>
       ${propSection}
     `;
+  }
+
+  /* ---- Success page: confirm + record a submitted proposal ----
+     After the rep submits on Upwork, the SAME tab lands on …/nx/proposals/<proposalId>?success.
+     We read the proposal id from the URL and the remembered job + connects from this tab's
+     sessionStorage (set on /apply), then show a card. Nothing is written until the rep clicks
+     "Confirm & Save" — keeping this reactive. Deduped by proposal id so a reload can't re-record. */
+  function renderSubmitConfirm() {
+    const pid = proposalSuccessId();
+    const link = `https://www.upwork.com/nx/proposals/${pid}`;
+    const pending = readSubmitPending();
+    const saved = rfxSubmitState[pid] === "saved" || sessionStorage.getItem("rfx_saved_" + pid) === "1";
+    const saving = rfxSubmitState[pid] === "saving";
+    const repName = (rfxAuth && rfxAuth.user && (rfxAuth.user.full_name || rfxAuth.user.email)) || "you";
+    const jobTitle = (pending && pending.title) || "";
+    const connects = pending && pending.connects != null ? pending.connects : null;
+
+    const facts =
+      (jobTitle ? `<div class="rfx-jt-meta"><span class="rfx-jt-budget">${esc(jobTitle)}</span></div>` : "") +
+      `<div class="rfx-sub-rows">` +
+        `<div class="rfx-sub-row"><span>Submitted by</span><b>${esc(repName)}</b></div>` +
+        (connects != null ? `<div class="rfx-sub-row"><span>Connects spent</span><b>${esc(connects)}</b></div>` : "") +
+        `<div class="rfx-sub-row"><span>Proposal</span><a href="${esc(link)}" target="_blank" rel="noopener">#${esc(pid)} ↗</a></div>` +
+      `</div>`;
+
+    if (saved) {
+      return `<div class="rfx-context-note">Proposal recorded in ${SYSTEM_NAME}.</div>
+        <div class="rfx-job-card">
+          <div class="rfx-job-title">Proposal submitted ✓</div>
+          ${facts}
+          <div class="rfx-jc-line rfx-mt"><span class="rfx-tag-own mine">Saved to ${SYSTEM_NAME} ✓</span></div>
+        </div>`;
+    }
+    if (!pending || !pending.job_id) {
+      // Success opened without a remembered job (fresh page / different tab) — can't link it.
+      return `<div class="rfx-context-note">You submitted this proposal on Upwork.</div>
+        <div class="rfx-job-card">
+          <div class="rfx-job-title">Proposal submitted ✓</div>
+          ${facts}
+          <div class="rfx-add-note">Couldn't match this to a ${SYSTEM_NAME} job automatically — open the job from its posting first, then submit, to record it.</div>
+        </div>`;
+    }
+    return `<div class="rfx-context-note">You submitted this on Upwork — save it to ${SYSTEM_NAME}?</div>
+      <div class="rfx-job-card">
+        <div class="rfx-job-title">Proposal submitted — save to ${SYSTEM_NAME}?</div>
+        ${facts}
+        <div class="rfx-jc-acts rfx-mt">
+          <button class="rfx-btn primary full" data-submit-confirm ${saving ? "disabled" : ""}>${saving ? '<span class="rfx-spin"></span> Saving…' : "Confirm &amp; Save"}</button>
+        </div>
+        <div class="rfx-add-err hidden" data-submit-err></div>
+      </div>`;
+  }
+
+  async function confirmSubmitProposal(body) {
+    const pid = proposalSuccessId();
+    const pending = readSubmitPending();
+    if (!pid || !pending || !pending.job_id) return;
+    const err = body.querySelector("[data-submit-err]");
+    if (err) err.classList.add("hidden");
+    rfxSubmitState[pid] = "saving";
+    render(); // reflect the "Saving…" state
+    const resp = await apiSubmitProposal({
+      upwork_job_id: pending.job_id,
+      proposal_id: pid,
+      proposal_link: `https://www.upwork.com/nx/proposals/${pid}`,
+      connects_spent: pending.connects,
+    });
+    if (resp && resp.ok && !resp.error) {
+      rfxSubmitState[pid] = "saved";
+      try { sessionStorage.setItem("rfx_saved_" + pid, "1"); sessionStorage.removeItem("rfx_pending_submit"); } catch (e) { /* ignore */ }
+      // Drop any cached status for this job so the next check reflects "submitted".
+      if (rfxJobCache[pending.job_id]) delete rfxJobCache[pending.job_id];
+      render();
+    } else {
+      delete rfxSubmitState[pid];
+      render();
+      const e2 = root.querySelector("[data-submit-err]");
+      if (e2) { e2.textContent = (resp && resp.error) || "Couldn't save — try again."; e2.classList.remove("hidden"); }
+    }
   }
 
   // Numeric Upwork job id from the detail URL ciphertext (~0<version><numeric>).
@@ -1236,6 +1608,17 @@
     return cipher ? `https://www.upwork.com/nx/proposals/job/${cipher}/apply/` : "";
   }
 
+  // The canonical job-posting URL. On the apply page we can't Add well (the page hides the client
+  // block + full details), so we send the rep to the real job posting to add it there. Prefer the
+  // page's own "View job posting" link; fall back to building it from the URL ciphertext.
+  function jobPostingUrl() {
+    const a = Array.from(document.querySelectorAll("a[href]"))
+      .find((el) => /view job posting/i.test((el.textContent || "").trim()));
+    if (a && a.href) return a.href;
+    const cipher = openJobCipherId();
+    return cipher ? `https://www.upwork.com/nx/search/jobs/details/${cipher}` : "";
+  }
+
   // Format a DB posted_at timestamp (ISO) as "Posted Jun 29, 2026". Empty for null/invalid.
   function fmtPosted(v) {
     if (!v) return "";
@@ -1250,6 +1633,69 @@
   function isApplyPage() {
     const p = location.pathname;
     return /\/apply(\/|$)/.test(p) || /\/proposals\/job\/~/.test(p);
+  }
+
+  // The Upwork proposal-success / details page: …/nx/proposals/<proposalId>[?success]. The number
+  // is the PROPOSAL id — NOT the job id (the job cipher is gone from the URL by now). Note the
+  // apply page is /nx/proposals/job/~… (non-numeric after "proposals"), so it won't match here.
+  function proposalSuccessId() {
+    const m = location.pathname.match(/\/nx\/proposals\/(\d{6,})(?:\/|$)/);
+    return m ? m[1] : "";
+  }
+  function isProposalSuccessPage() { return !!proposalSuccessId(); }
+  // Only take over the Job tab with the "save this submission" card when it's actually a submit
+  // context: a fresh `?success`, a remembered pending apply (this tab), or an already-saved id.
+  // A plain proposal-details visit (from "My proposals") without any of these is left alone.
+  function shouldShowSubmitConfirm() {
+    const pid = proposalSuccessId();
+    if (!pid) return false;
+    return /success/i.test(location.search)
+      || !!readSubmitPending()
+      || sessionStorage.getItem("rfx_saved_" + pid) === "1";
+  }
+
+  // While on /apply, remember (in THIS tab's sessionStorage) the job + connects so that after the
+  // rep submits — same tab, a new URL that no longer carries the job id — we can still link the new
+  // proposal id back to this job. sessionStorage is per-tab, so concurrent applies in other tabs
+  // never mix. Cheap to re-run on each observer tick, keeping connects current (e.g. after a boost).
+  function captureApplyContext() {
+    if (!isApplyPage()) return;
+    const jobId = openJobNumericId();
+    if (!jobId) return;
+    const t = (document.body && document.body.innerText) || "";
+    const grab = (re) => { const m = t.match(re); return m ? Number(m[1]) : null; };
+    const connects = grab(/Total:\s*(\d+)\s*Connects/i)
+      ?? grab(/Required for proposal:\s*(\d+)\s*Connects/i)
+      ?? grab(/This proposal requires\s*(\d+)\s*Connects/i);
+    const rec = { job_id: jobId, cipher: openJobCipherId(), connects, title: readApplyJobTitle() || "", ts: Date.now() };
+    try { sessionStorage.setItem("rfx_pending_submit", JSON.stringify(rec)); } catch (e) { /* storage blocked — ignore */ }
+  }
+  function readSubmitPending() {
+    try { return JSON.parse(sessionStorage.getItem("rfx_pending_submit") || "null"); }
+    catch (e) { return null; }
+  }
+  // Refresh just the apply-page hint line (connects) in place — the observer calls this as the
+  // bidding box loads, without a full re-render (which would wipe the rep's inline edits).
+  function updateApplyHint() {
+    const el = root.querySelector("[data-rfx-apply-hint]");
+    if (!el) return;
+    const p = readSubmitPending();
+    const c = p && p.connects != null ? p.connects : null;
+    el.textContent = `✓ ${SYSTEM_NAME} will record this proposal after you submit${c != null ? ` · ${c} connects` : ""}.`;
+  }
+  // Ask the background to POST /jobs/submitted. Resolves to { ok } or { error }.
+  function apiSubmitProposal(payload) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "SUBMIT_PROPOSAL", payload }, (resp) => {
+          if (chrome.runtime.lastError || !resp) {
+            resolve({ error: (chrome.runtime.lastError && chrome.runtime.lastError.message) || "No response from background" });
+            return;
+          }
+          resolve(resp);
+        });
+      } catch (e) { resolve({ error: String(e && e.message ? e.message : e) }); }
+    });
   }
 
   // Read the currently-open job on Upwork (read-only). Returns null when no job
@@ -1284,6 +1730,46 @@
     return null;
   }
 
+  // The apply page (/apply) has no detail region, but it DOES render a "Job details" card whose
+  // sidebar shows the budget ("$10 - $25 · Hourly range", "$4,500 · Fixed-price", or just
+  // "Hourly"). Locate that card so we can read the budget from the page instead of the DB.
+  // Returns the section element, or null (caller falls back to the whole document).
+  function findApplyDetails() {
+    const h = Array.from(document.querySelectorAll("h2, h3, h4, strong, div, span"))
+      .find((el) => { const t = (el.textContent || "").trim(); return /^job details$/i.test(t) && t.length < 30; });
+    if (!h) return null;
+    let el = h;
+    for (let i = 0; i < 7 && el.parentElement; i++) {
+      el = el.parentElement;
+      const t = el.textContent || "";
+      // The Job-details card holds the budget meta but NOT the sibling "Proposal settings"/"Terms"
+      // sections — that guard bounds the card without a char limit (long descriptions blew past it).
+      if (/experience level|project length|hrs?\/week|fixed-price|\bhourly\b/i.test(t)
+          && !/proposal settings|do you want to submit/i.test(t)) return el;
+    }
+    return null;
+  }
+
+  // The real job title on the apply page (the page H1 is "Submit a proposal"). It sits right under
+  // the "Job details" heading — find that heading page-wide, then take the first title-like thing
+  // after it: a heading if the title is a real <h*>, else the next text line.
+  function readApplyJobTitle() {
+    const isLabel = (t) => !t || t.length < 4
+      || /^(job details|summary|terms|skills and expertise|preferred qualifications|activity on this job|about the client|proposal settings)$/i.test(t)
+      || /^posted\b/i.test(t);
+    // 1) The first non-label heading after the "Job details" heading (document order).
+    const heads = Array.from(document.querySelectorAll("h1, h2, h3, h4"))
+      .map((h) => (h.textContent || "").trim().replace(/\s+/g, " "));
+    const hi = heads.findIndex((t) => /^job details$/i.test(t));
+    if (hi >= 0) { const t = heads.slice(hi + 1).find((x) => !isLabel(x)); if (t) return t; }
+    // 2) Fall back to the page text: the line right after "Job details" (title isn't always an <h*>).
+    const lines = (document.body ? (document.body.innerText || document.body.textContent || "") : "")
+      .split(/\n+/).map((s) => s.trim().replace(/\s+/g, " ")).filter(Boolean);
+    const li = lines.findIndex((l) => /^job details$/i.test(l));
+    if (li >= 0) { const t = lines.slice(li + 1, li + 6).find((x) => !isLabel(x)); if (t) return t; }
+    return "";
+  }
+
   // The job "type" meta — the same facts Upwork shows as its icon grid.
   function readJobMeta(text) {
     const m = (re) => { const x = text.match(re); return x ? x[0].replace(/\s+/g, " ").trim() : ""; };
@@ -1309,8 +1795,15 @@
     const scope = region || document;
     const titleEl = scope.querySelector("h1, h2, h3, h4, [data-test='job-title'], [data-test='JobTitle']");
     let title = titleEl ? titleEl.textContent.trim().replace(/\s+/g, " ") : "";
-    if (!title) title = (document.title || "").replace(/\s*[-|–]\s*Upwork.*$/i, "").trim();
-    if (!title) title = "(this job)";
+    // On the apply page the page H1 is "Submit a proposal" — the real title sits right under the
+    // "Job details" heading. Read it page-wide (not scoped to a card, whose columns live in
+    // separate DOM branches) so a long description or deep nesting can't break it.
+    if (isApplyPage()) {
+      const t = readApplyJobTitle();
+      if (t) title = t;
+    }
+    if (!title || /^submit a proposal$/i.test(title)) title = (document.title || "").replace(/\s*[-|–]\s*Upwork.*$/i, "").trim();
+    if (!title || /^submit a proposal$/i.test(title)) title = "(this job)";
     const text = region ? (region.textContent || "").replace(/\s+/g, " ") : "";
     // description: explicit selector, else the text right after "Summary"
     const descEl = scope.querySelector("[data-test='Description'], [data-test='job-description-text'], [data-test='JobDescription']");
@@ -1330,12 +1823,13 @@
       /payment (?:method )?verified/i.test(text) ? "✓ Payment verified" : "",
     ].filter(Boolean);
     // Compact card facts (same as a Listing tile): type · price, and the posted date.
-    const type = /fixed[- ]price/i.test(text) ? "Fixed-price" : (/\bhourly\b/i.test(text) ? "Hourly" : "");
-    const hr = text.match(/\$[\d.,]+(?:\s*-\s*\$?[\d.,]+)?\s*\/\s*hr/i);
-    const est = text.match(/Est(?:imated)?\.?\s*budget:?\s*\$[\d.,]+\s*[KMB]?/i);
-    const budget = hr
-      ? hr[0].replace(/\s+/g, " ").trim()
-      : est ? est[0].replace(/Est(?:imated)?\.?\s*budget:?\s*/i, "").replace(/\s+/g, " ").trim() : "";
+    // On the apply page there's no detail region (text is ""), but the page still shows the budget
+    // in its "Job details" card — parse type/budget from that (scoped, else the whole page) so the
+    // apply card stops falling back to the DB's bare "Hourly"/"Fixed" word. Client/meta/posted
+    // below still read `text` only, so the apply card gains no extra chips.
+    const budgetSrc = text
+      || (isApplyPage() ? ((findApplyDetails() || document.body || {}).textContent || "").replace(/\s+/g, " ") : "");
+    const { type, budget } = parseTileBudget(budgetSrc);
     const pm = text.match(/Posted\s+[^·|]+?\bago\b/i);
     const posted = pm ? pm[0].trim() : "";
     return { id, title, description, meta, client, type, budget, posted, cipher: openJobCipherId() };
@@ -1682,6 +2176,10 @@
     // job tab: wire the open job's card (Add / Generate)
     const jc = body.querySelector("[data-rfx-jobtab]");
     if (jc) wireListCard(jc, jc.getAttribute("data-rfx-jobtab"));
+
+    // success page: "Confirm & Save" records the submitted proposal against its job
+    const sc = body.querySelector("[data-submit-confirm]");
+    if (sc) sc.addEventListener("click", () => confirmSubmitProposal(body));
 
     // job tab: "Apply on Upwork" is a plain <a href> (the apply URL built from the open job's
     // URL). The rep clicks the link themselves — no scripted navigation/automation here.
@@ -2520,10 +3018,21 @@
           if (openNow) { rfxAwaitOpenForGen = null; rfxLastOpenId = openNow; surface = "job"; startGeneration(openNow, { stay: true }); }
           return;
         }
+        // Post-submit success page: show the "save to Reflex" confirm card once (per proposal id).
+        // Don't re-render on later DOM churn so the card's saving/saved state isn't wiped.
+        if (shouldShowSubmitConfirm()) {
+          const pid = proposalSuccessId();
+          if (surface !== "job" || rfxSuccessShownFor !== pid) {
+            surface = "job"; rfxSuccessShownFor = pid; render();
+          }
+          return;
+        }
         // The apply page maps to the Job tab (Proposal tab was merged in). Switch from the
         // listing once; once we're on the Job tab, DON'T re-render on later DOM churn so the
         // rep's inline cover-letter edits / sample picks aren't wiped.
         if (isApplyPage()) {
+          captureApplyContext(); // keep the remembered job + connects fresh (cheap) for the submit link
+          updateApplyHint();     // refresh the visible "will record · N connects" line in place
           if (surface === "listing") { surface = "job"; rfxLastOpenId = openJobNumericId(); render(); }
           return;
         }
@@ -2561,7 +3070,8 @@
   } catch (e) { /* storage API unavailable — gate still works via the refresh button */ }
 
   // The apply page opens in its own browser tab — auto-open the panel straight to
-  // the Proposal tab there, so the rep lands on exactly what they need.
-  if (isApplyPage()) openPanel();
+  // the Proposal tab there, so the rep lands on exactly what they need. Same on the
+  // post-submit success page, so the "save to Reflex" confirm card is right there.
+  if (isApplyPage() || shouldShowSubmitConfirm()) openPanel();
 
 })();

@@ -4,7 +4,8 @@
 
 // Local dev: the Worker from `cd apps/api && npm run dev` (wrangler) serves here.
 // TODO(backend): swap for the deployed Worker URL in production.
-const API_BASE = "http://localhost:8787";
+// const API_BASE = "http://localhost:8787";
+const API_BASE = "https://reflex-api.manish-98d.workers.dev";
 
 // Same keys the portal uses (localStorage there, chrome.storage.local here).
 const TOKEN_KEY = "reflex_token";
@@ -56,6 +57,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       return true;
     case "PROPOSAL_DRAFT":
       proposalDraft(msg.payload || {})
+        .then((data) => sendResponse(data))
+        .catch((e) => sendResponse({ error: errMsg(e) }));
+      return true;
+    case "SUBMIT_PROPOSAL":
+      submitProposal(msg.payload || {})
         .then((data) => sendResponse(data))
         .catch((e) => sendResponse({ error: errMsg(e) }));
       return true;
@@ -199,6 +205,19 @@ async function proposalDraft(payload) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data && data.error ? data.error : `PROPOSAL_DRAFT ${res.status}`);
+  return data;
+}
+
+// Record a submitted proposal (job id + proposal id/link + connects spent) after the rep confirms
+// on the Upwork success page. Auth-gated on the API; idempotent server-side.
+async function submitProposal(payload) {
+  const res = await fetch(`${API_BASE}/jobs/submitted`, {
+    method: "POST",
+    headers: await authHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data && data.error ? data.error : `SUBMIT_PROPOSAL ${res.status}`);
   return data;
 }
 

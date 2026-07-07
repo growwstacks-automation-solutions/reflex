@@ -11,6 +11,7 @@ import { matchAssets } from "./matchAssets";
 import { classify, type ClassifyJob } from "./classify";
 import { persistProposalDraft } from "./saveProposal";
 import { proposalDraft } from "./proposalDraft";
+import { jobSubmitted } from "./submitted";
 import { fillLoomPlaceholders } from "./looms";
 
 export interface Env {
@@ -44,6 +45,7 @@ export default {
     if (route === "POST /jobs/check") return checkJobs(req, env);
     if (route === "POST /jobs/proposal") return proposalDraft(req, env);
     if (route === "POST /jobs/add") return addJob(req, env);
+    if (route === "POST /jobs/submitted") return jobSubmitted(req, env);
     if (route === "POST /jobs/classify") return classifyHandler(req, env);
     return json({ error: "Not found." }, 404);
   },
