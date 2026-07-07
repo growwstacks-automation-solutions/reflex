@@ -8,6 +8,54 @@ to look to see where things stand. Newest entry at the top.
 
 ## Session log
 
+### 2026-07-07 — Messages sync + suggested reply (extension Messages tab) — staged, NOT yet live-verified
+- **What:** the panel's **Messages** tab is now real (was fully mocked). Two actions on the open
+  Upwork conversation: **Sync messages** (pulls the room's messages into `thread_messages` via the
+  official API, server-side) and **Suggested reply** (job + proposal + thread → Claude → an editable
+  reply + a 2-3 line summary the rep copies). Shows job title, summary, editable reply, Copy, and a
+  "Last synced" time. Reactive-only — Reflex never sends on Upwork.
+- **Did (DB, migration `0006_messages_sync.sql`):** `alter table jobs add column messages_synced_at
+  timestamptz` — stamped each sync so "Last synced" is honest even when 0 new messages arrive.
+  `thread_messages` already existed (idempotent on `message_id`), so no new table. Mirrored in SCHEMA.md.
+  **Manish to apply `0006`.**
+- **Did (API):** new `src/upworkMessages.ts` (the ONLY Upwork-Messages client — token fetch +
+  room-stories fetch via **Upwork GraphQL** `POST /api/graphql/v1` `roomStories(filter:{roomId})`,
+  reading `node { id message userId createdAt }`; isolated like the DOM anchors) and `src/messages.ts`
+  (`POST /messages/sync` + `POST /messages/suggest`, both auth-gated). `index.ts` — added
+  `UPWORK_TOKEN_URL` (secret) + optional `UPWORK_VIEWER_ID` to `Env` and routed the two endpoints.
+  Sync matches `room_id → job` via `jobs.chat_url ILIKE '%room_id%'`, upserts `on conflict
+  (message_id) do nothing` (return-count = new messages), stamps `jobs.messages_synced_at`. Suggest
+  loads job+proposal+thread, calls Haiku, returns `{summary, reply, cost_inr, tokens}` (defensive
+  JSON parse mirroring `generate.ts`).
+- **Did (extension):** `background.js` — `SYNC_MESSAGES` + `SUGGEST_REPLY` proxies (auth headers,
+  same pattern as the others). `content/content.js` — `getRoomId()` parses `room_id` from the tab
+  URL; the Messages tab is state-driven off a new `rfxMsg` object; `runSync()` / `runSuggest()` call
+  the background and re-render. Removed the mock thread/replies/summary + the tone/`wireReply` dead code.
+- **Verified LIVE against a real room** (`room_8f04…`, read-only probe): token URL is **POST-only**
+  → `{accessToken}` (fixed: the client was using GET); GraphQL host is **`api.upwork.com/graphql`**
+  (fixed: `www.upwork.com` returns an anti-bot **Challenge HTML 403**); filter key is **`roomId_eq`**
+  (not `roomId`); in-scope fields are **`id message createdDateTime user{id name}`** (the doc's
+  `userId`/`createdAt` don't exist on `RoomStory`). Pulled all **17 messages** correctly; `message` is
+  null on attachment-only stories (skipped); API returns newest-first (we sort ascending). Our viewer
+  id (Manish) = **`1631867444887154688`** → set in `.dev.vars` so our messages label "us". `node --check`
+  clean; API typecheck clean; `wrangler dry-run` builds. Pre-existing `board.ts` tsc errors (`sql.query`,
+  untouched) still present — unrelated.
+- **`0006` applied** (Manish confirmed the column exists).
+- **Match strategy CHANGED after checking real data:** `jobs.chat_url` is **empty on all 4457 jobs**,
+  so the originally-planned `chat_url ILIKE '%room_id%'` link can never resolve. Replaced with the
+  **job posting id**: `room{ vendorProposal{ marketplaceJobPosting{ id } } }` matched to
+  `jobs.upwork_job_id` (verified equal-format). `room.topic` is the display title. Sync links via the
+  posting id; suggest reuses the sync-time `thread_messages.job_id`. Verified the full sync path on
+  `room_8f04…`: topic + posting id `2052809676441463218` + 13 body messages, sorted oldest-first,
+  correctly us/client-labeled. That posting isn't in our `jobs` table (this conversation's job was
+  never ingested), so it syncs UNLINKED and suggest replies from the thread alone — expected & correct.
+- **⚑ Left for live click-test / prod:** (1) the authenticated panel click-test (needs a signed-in rep
+  — not runnable headless here); (2) confirm the posting-id link resolves on a room whose job IS in
+  Reflex (couldn't verify here — the test room's job isn't ingested); (3) prod:
+  `wrangler secret put UPWORK_TOKEN_URL` + set `UPWORK_VIEWER_ID` var.
+- **Next:** panel click-test on a live thread; then move the sync onto the Worker cron (this is its
+  human-clicked equivalent).
+
 ### 2026-07-03 — Listing tab now detects jobs on the find-work feed (best-matches / most-recent) ✅ working
 - **Problem:** on `upwork.com/nx/find-work/best-matches` and `/most-recent` the panel's Listing tab
   showed "No Upwork jobs detected," though the page was full of jobs. Cause: `readVisibleTiles()`

@@ -100,26 +100,12 @@
     a: "Yes — most recently for a real-estate team: web-form capture into GHL, a 6-step email + SMS nurture sequence, pipeline automations that move leads on reply, and calendar booking. It lifted their booked-call rate noticeably. Happy to show it live."
   };
 
-  // MOCK: the message thread (the hero surface).
-  const MOCK_THREAD = [
-    { who: "Client · Daniel", side: "them", text: "Hi, thanks for the proposal! Two things — can you give me a fixed price for the full GHL setup, and are you free for a quick call this week?" }
-  ];
-  // MOCK: suggested replies keyed by tone.
-  const MOCK_REPLIES = {
-    base:     "Happy to help, Daniel. For the full GoHighLevel setup — pipelines, nurture sequences, and calendar booking — I'd put it at a fixed $1,800, delivered in 7–10 days. I'm free for a quick call Wed or Thu; send a slot that suits you and I'll confirm. Looking forward to it.",
-    Warmer:   "Thanks so much, Daniel — really glad the proposal landed! For the full GHL setup (pipelines, nurture sequences, and calendar booking) I'd keep it simple at a fixed $1,800, done in 7–10 days. I'd love to hop on a quick call — Wed or Thu both work for me. Just send a time that's easy for you and I'll lock it in.",
-    Shorter:  "Thanks Daniel! Full GHL setup: fixed $1,800, 7–10 days. Free Wed or Thu for a call — send a slot and I'll confirm.",
-    "More specific": "Happy to, Daniel. Full GHL setup = lead-capture forms, a 6-step email/SMS nurture sequence, pipeline automations, and calendar booking — fixed $1,800, delivered in 7–10 days with one revision round. I'm free Wed 3–5pm or Thu 11am–1pm IST for a call; pick one and I'll send a calendar invite."
-  };
-  const MOCK_SUMMARY = "Client reviewed the proposal and is interested — no objections raised. They've asked for (1) a fixed price for the full GHL setup and (2) a call this week. Next step: send the fixed quote and propose two call times.";
-
   /* ---------- state ---------- */
   let surface = "listing"; // open on the live job-listing replica
   let selectedAssets = new Set();
   let rfxAssets = [];      // work samples for the current proposal (from /generate image_links)
   let rfxLooms = [];       // loom rows for the current proposal (from /generate looms)
   let draftIndex = 0;
-  let activeTone = "base";
   let rfxLastOpenId = ""; // last Upwork job id seen open — drives auto-switch to the Job tab
   let rfxGenState = "idle"; // proposal generation: "idle" | "generating" | "ready" | "error"
   let rfxGenJobId = "";     // the job the current proposal draft is for
@@ -137,6 +123,53 @@
   let rfxAwaitOpenForGen = null; // jobId the rep wants to generate for from the listing — waiting for them to open it
   let rfxSubmitState = {};    // proposalId -> "saving" | "saved" (success-page confirm card state)
   let rfxSuccessShownFor = ""; // proposalId we've already rendered the success card for (render-once guard)
+  // Messages tab (real): sync + suggested reply for the open Upwork conversation.
+  let rfxMsg = {
+    room: "",            // room_id parsed from the tab URL
+    state: "idle",       // "idle" | "syncing" | "suggesting" | "ready" | "error"
+    syncedAt: null,      // ISO of the last sync (jobs.messages_synced_at)
+    jobTitle: "",        // matched job title (from sync/suggest)
+    linked: false,       // did room_id match a job in Reflex?
+    summary: "",         // conversation summary (2-3 lines)
+    reply: "",           // editable suggested reply
+    cost: null,          // ₹ cost of the last suggest
+    tokens: null,
+    error: "",
+  };
+
+  // Promise wrapper around the background message channel (content-script side). Degrades a
+  // closed/asleep port to { error } instead of an unhandled lastError.
+  function bg(type, payload) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type, payload }, (resp) => {
+          const err = chrome.runtime.lastError;
+          resolve(err ? { error: err.message } : (resp || {}));
+        });
+      } catch (e) { resolve({ error: String((e && e.message) || e) }); }
+    });
+  }
+
+  // room_id from the current Upwork messages URL. Upwork threads live under …/messages/rooms/<id>.
+  // TODO(verify): confirm the room URL shape on the live site and tighten this if needed.
+  function getRoomId() {
+    const href = location.href;
+    const m = href.match(/\/rooms\/([^/?#]+)/) || href.match(/\/messages\/[^/?#]+\/([0-9a-fA-F]{8,})/);
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+
+  // ISO -> short local time for the "Last synced" line.
+  function fmtSynced(iso) {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      const today = new Date();
+      const sameDay = d.toDateString() === today.toDateString();
+      return sameDay
+        ? d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+        : d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    } catch (e) { return ""; }
+  }
 
   /* ---------- build launcher ---------- */
   const launcher = document.createElement("button");
@@ -2113,43 +2146,61 @@
     flash(btn, `Downloaded ${files.length} file${files.length > 1 ? "s" : ""} ✓`);
   }
 
-  /* ---- Surface 4: messages (hero) ---- */
+  /* ---- Surface 4: messages ----
+     Real flow: Sync pulls the room's messages into Reflex (server-side, official API); Suggested
+     reply feeds job + proposal + thread to Claude and returns a summary + editable reply to COPY.
+     Reflex never sends on Upwork — the rep pastes and sends manually. */
   function renderMessages() {
-    const replied = activeTone !== "base" || window.__rfxReplied;
-    const replyText = MOCK_REPLIES[activeTone] || MOCK_REPLIES.base;
-    return `
-      <div class="rfx-context-note">Reading a client thread? Get a reply in one click — ${SYSTEM_NAME} already knows the job, your proposal, and the whole conversation.</div>
+    rfxMsg.room = getRoomId();
+    if (!rfxMsg.room) {
+      return `<div class="rfx-context-note">Open a client conversation on Upwork (a message thread) and ${SYSTEM_NAME} will sync it and suggest a reply here.</div>`;
+    }
 
-      <div class="rfx-card rfx-thread">
-        <div class="rfx-thread-head">Conversation</div>
-        ${MOCK_THREAD.map(m => `
-          <div class="rfx-msg ${m.side}">
-            <div class="rfx-who">${m.who}</div>
-            <div class="rfx-bubble">${m.text}</div>
-          </div>`).join("")}
-        <div class="rfx-thread-actions">
-          <button class="rfx-btn primary" data-suggest><span class="rfx-spark">✦</span> Suggested reply</button>
-          <button class="rfx-btn ghost" data-summary>Summarize</button>
+    const busy = rfxMsg.state === "syncing" || rfxMsg.state === "suggesting";
+    const syncedLine = rfxMsg.syncedAt
+      ? `Last synced: ${esc(fmtSynced(rfxMsg.syncedAt))}`
+      : "Not synced yet";
+    const titleLine = rfxMsg.jobTitle
+      ? `<div class="rfx-jt-title">${esc(rfxMsg.jobTitle)}</div>`
+      : (rfxMsg.linked === false && rfxMsg.state !== "idle"
+          ? `<div class="rfx-meta" style="color:var(--rfx-text-2)">Not matched to a Reflex job — replying from the conversation alone.</div>`
+          : "");
+
+    return `
+      <div class="rfx-context-note">Reading a client thread? ${SYSTEM_NAME} knows the job, your proposal, and the whole conversation.</div>
+
+      <div class="rfx-card">
+        ${titleLine}
+        <div class="rfx-between">
+          <span class="rfx-cost">${syncedLine}</span>
+          <button class="rfx-btn ghost sm" data-sync ${busy ? "disabled" : ""}>${rfxMsg.state === "syncing" ? `<span class="rfx-spin"></span> Syncing…` : "↻ Sync messages"}</button>
         </div>
+        <button class="rfx-btn primary full rfx-mt" data-suggest ${busy ? "disabled" : ""}>
+          ${rfxMsg.state === "suggesting" ? `<span class="rfx-spin"></span> Generating…` : `<span class="rfx-spark">✦</span> Suggested reply`}
+        </button>
+        ${rfxMsg.error ? `<div class="rfx-meta rfx-mt" style="color:var(--rfx-danger,#c0392b)">${esc(rfxMsg.error)}</div>` : ""}
       </div>
 
-      <div id="rfx-reply-zone"></div>
+      <div id="rfx-reply-zone">${rfxMsg.state === "ready" ? replyCardHTML() : ""}</div>
     `;
   }
 
   function replyCardHTML() {
-    const replyText = MOCK_REPLIES[activeTone] || MOCK_REPLIES.base;
-    const tones = ["Warmer", "Shorter", "More specific"];
+    const costLine = rfxMsg.cost != null
+      ? `₹ ${rfxMsg.cost}${rfxMsg.tokens != null ? ` · ~${rfxMsg.tokens} tokens` : ""}`
+      : "";
+    const summary = rfxMsg.summary
+      ? `<div class="rfx-section-label">Conversation summary</div>
+         <div class="rfx-meta" style="color:var(--rfx-text-2);margin-bottom:10px">${esc(rfxMsg.summary)}</div>`
+      : "";
     return `
       <div class="rfx-card">
+        ${summary}
         <div class="rfx-section-label">Suggested reply</div>
-        <textarea class="rfx-edit" id="rfx-reply">${replyText}</textarea>
-        <div class="rfx-tones">
-          ${tones.map(t => `<button class="rfx-tone ${activeTone===t?'rfx-active':''}" data-tone="${t}">${t}</button>`).join("")}
-        </div>
+        <textarea class="rfx-edit" id="rfx-reply">${esc(rfxMsg.reply)}</textarea>
         <div class="rfx-between">
-          <span class="rfx-cost">₹ 0.22 · ~340 tokens</span>
-          <button class="rfx-btn ghost sm" data-regen-reply>↻ Regenerate</button>
+          <span class="rfx-cost">${costLine}</span>
+          <button class="rfx-btn ghost sm" data-suggest>↻ Regenerate</button>
         </div>
         <button class="rfx-btn primary full rfx-mt" data-insert="reply">Copy reply</button>
       </div>
@@ -2253,49 +2304,61 @@
         toast("Title copied ✓");
       }));
 
-    // messages: suggested reply (with generating state)
-    const sg = body.querySelector("[data-suggest]");
-    if (sg) sg.addEventListener("click", () => {
-      const zone = body.querySelector("#rfx-reply-zone");
-      sg.disabled = true;
-      sg.innerHTML = `<span class="rfx-spin"></span> Generating…`;
-      // TODO(claude-code): send { type:"SUGGEST_REPLY", jobId, thread } to background.
-      setTimeout(() => {
-        window.__rfxReplied = true;
-        activeTone = "base";
-        zone.innerHTML = replyCardHTML();
-        wireReply(zone);
-        sg.disabled = false;
-        sg.innerHTML = `<span class="rfx-spark">✦</span> Suggested reply`;
-      }, 850);
-    });
+    // messages: sync the open conversation from Upwork (server-side, official API)
+    body.querySelectorAll("[data-sync]").forEach(btn =>
+      btn.addEventListener("click", runSync));
 
-    // messages: summarize
-    const sm = body.querySelector("[data-summary]");
-    if (sm) sm.addEventListener("click", () => {
-      const zone = body.querySelector("#rfx-reply-zone");
-      zone.innerHTML = `<div class="rfx-card"><div class="rfx-section-label">Conversation summary</div><div class="rfx-meta" style="color:var(--rfx-text-2)">${MOCK_SUMMARY}</div></div>`;
-    });
+    // messages: suggested reply (the main button AND the Regenerate button both call this)
+    body.querySelectorAll("[data-suggest]").forEach(btn =>
+      btn.addEventListener("click", runSuggest));
 
-    // if a reply was already shown for this session, restore it
-    if (surface === "messages" && window.__rfxReplied) {
-      const zone = body.querySelector("#rfx-reply-zone");
-      if (zone && !zone.innerHTML.trim()) { zone.innerHTML = replyCardHTML(); wireReply(zone); }
-    }
+    // messages: Copy reply is handled by the generic [data-insert] wiring above (→ #rfx-reply).
   }
 
-  function wireReply(zone) {
-    zone.querySelectorAll("[data-tone]").forEach(t =>
-      t.addEventListener("click", () => {
-        activeTone = t.dataset.tone;
-        zone.innerHTML = replyCardHTML();
-        wireReply(zone);
-        // TODO(claude-code): re-call backend with the tone instruction.
-      }));
-    const rr = zone.querySelector("[data-regen-reply]");
-    if (rr) rr.addEventListener("click", () => { zone.innerHTML = replyCardHTML(); wireReply(zone); });
-    zone.querySelectorAll("[data-insert]").forEach(b =>
-      b.addEventListener("click", () => handleInsert(b, zone)));
+  // Pull the open room's messages into Reflex, then refresh the Messages tab.
+  async function runSync() {
+    const room = getRoomId();
+    if (!room) return;
+    rfxMsg.room = room; rfxMsg.state = "syncing"; rfxMsg.error = "";
+    if (surface === "messages") render();
+    const res = await bg("SYNC_MESSAGES", { room_id: room });
+    if (!res || res.error) {
+      rfxMsg.state = rfxMsg.reply ? "ready" : "idle";
+      rfxMsg.error = (res && res.error) || "Sync failed.";
+      if (surface === "messages") render();
+      return;
+    }
+    rfxMsg.state = rfxMsg.reply ? "ready" : "idle";
+    rfxMsg.linked = !!res.linked;
+    rfxMsg.jobTitle = res.job_title || rfxMsg.jobTitle;
+    // When linked, the DB stamp is authoritative; unlinked rooms aren't stamped, so approximate.
+    rfxMsg.syncedAt = res.last_synced_at || new Date().toISOString();
+    if (surface === "messages") render();
+    const n = res.synced || 0;
+    toast(n ? `Synced ${n} new message${n === 1 ? "" : "s"} ✓` : `Up to date · ${res.fetched || 0} message${(res.fetched || 0) === 1 ? "" : "s"}`);
+  }
+
+  // Generate (or regenerate) a suggested reply from the job + proposal + synced thread.
+  async function runSuggest() {
+    const room = getRoomId();
+    if (!room) return;
+    rfxMsg.room = room; rfxMsg.state = "suggesting"; rfxMsg.error = "";
+    if (surface === "messages") render();
+    const res = await bg("SUGGEST_REPLY", { room_id: room });
+    if (!res || res.error) {
+      rfxMsg.state = rfxMsg.reply ? "ready" : "idle";
+      rfxMsg.error = (res && res.error) || "Couldn't generate a reply.";
+      if (surface === "messages") render();
+      return;
+    }
+    rfxMsg.state = "ready";
+    rfxMsg.summary = res.summary || "";
+    rfxMsg.reply = res.reply || "";
+    rfxMsg.cost = res.cost_inr != null ? res.cost_inr : null;
+    rfxMsg.tokens = res.tokens != null ? res.tokens : null;
+    rfxMsg.jobTitle = res.job_title || rfxMsg.jobTitle;
+    rfxMsg.syncedAt = res.last_synced_at || rfxMsg.syncedAt;
+    if (surface === "messages") render();
   }
 
   function flash(btn, msg) {

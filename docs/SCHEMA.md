@@ -88,9 +88,20 @@ a synthetic `portfolio://pN/iM` url) are snapshotted into `assets` (deduped by u
 to the draft, so they all restore via `POST /jobs/proposal`. Replaced wholesale on each regenerate.
 No new column needed — reuses the existing `asset_kind` enum.
 
-**`thread_messages`** — synced Upwork conversation, one thread per job. `id`, `job_id`,
-`room_id`, `message_id` (**unique — idempotency key for the sync**), `sender` (`msg_sender`),
-`body`, `sent_at`, `created_at`.
+**`thread_messages`** — synced Upwork conversation, one thread per job. `id`, `job_id`
+(nullable — a room can sync before its job is in Reflex), `room_id`, `message_id` (**unique —
+idempotency key for the sync**), `sender` (`msg_sender`), `body`, `sent_at`, `created_at`.
+**Written by `POST /messages/sync`** (`messages.ts`): the extension sends the `room_id` (parsed
+from the rep's Upwork thread URL); the Worker mints a token from `UPWORK_TOKEN_URL` (POST →
+`{accessToken}`), then hits the **Upwork GraphQL API** (`https://api.upwork.com/graphql` — NOT
+`www.upwork.com`, which bot-challenges): `roomStories(filter:{roomId_eq})` for the messages and
+`room(id){ topic vendorProposal{ marketplaceJobPosting{ id } } }` for the job link. Messages UPSERT
+`on conflict (message_id) do nothing`. **The room→job link is `jobs.upwork_job_id =
+marketplaceJobPosting.id`** — NOT `chat_url` (which is empty across the entire jobs table). The link
+is nullable (the job may not be in Reflex). **`POST /messages/suggest`** reads the linked job + its
+proposal + this thread and returns a Claude `{summary, reply}` for the rep to copy (never auto-sent).
+Migration `0006` added **`jobs.messages_synced_at`** (timestamptz) — stamped every sync so the panel
+shows "Last synced" even when a sync finds no new messages.
 
 **`connects_ledger`** — append-only. `id`, `user_id`, `job_id`, `delta` (int; negative =
 spent), `note`, `created_at`. "Connects left" is a computed/cached balance.

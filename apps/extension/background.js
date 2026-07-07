@@ -65,7 +65,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         .then((data) => sendResponse(data))
         .catch((e) => sendResponse({ error: errMsg(e) }));
       return true;
-    // TODO(backend): SUGGEST_REPLY.
+    case "SYNC_MESSAGES":
+      syncMessages(msg.payload || {})
+        .then((data) => sendResponse(data))
+        .catch((e) => sendResponse({ error: errMsg(e) }));
+      return true;
+    case "SUGGEST_REPLY":
+      suggestReply(msg.payload || {})
+        .then((data) => sendResponse(data))
+        .catch((e) => sendResponse({ error: errMsg(e) }));
+      return true;
     default:
       return false;
   }
@@ -218,6 +227,33 @@ async function submitProposal(payload) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data && data.error ? data.error : `SUBMIT_PROPOSAL ${res.status}`);
+  return data;
+}
+
+// POST { room_id } to the Worker; it fetches the room's messages from Upwork's official API
+// (server-side) and upserts them into thread_messages. Returns { synced, fetched, job_title,
+// last_synced_at, linked }. Auth-gated.
+async function syncMessages(payload) {
+  const res = await fetch(`${API_BASE}/messages/sync`, {
+    method: "POST",
+    headers: await authHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data && data.error ? data.error : `SYNC_MESSAGES ${res.status}`);
+  return data;
+}
+
+// POST { room_id } to the Worker; it feeds the job + proposal + synced thread to Claude and
+// returns { job_title, summary, reply, cost_inr, tokens, last_synced_at } for the rep to copy.
+async function suggestReply(payload) {
+  const res = await fetch(`${API_BASE}/messages/suggest`, {
+    method: "POST",
+    headers: await authHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data && data.error ? data.error : `SUGGEST_REPLY ${res.status}`);
   return data;
 }
 
