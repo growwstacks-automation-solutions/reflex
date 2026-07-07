@@ -138,6 +138,9 @@
   let rfxAwaitOpenForGen = null; // jobId the rep wants to generate for from the listing — waiting for them to open it
   let rfxSubmitState = {};    // proposalId -> "saving" | "saved" (success-page confirm card state)
   let rfxSuccessShownFor = ""; // proposalId we've already rendered the success card for (render-once guard)
+  let rfxAutoConfirmedFor = ""; // proposalId we've already auto-confirmed (one-shot dedupe)
+  let rfxAutoConfirmTimer = null; // pending auto-confirm timer, so re-renders don't stack timers
+  const RFX_AUTO_CONFIRM_MS = 2000; // auto-click "Confirm & Save" this long after the card shows
 
   /* ---------- build launcher ---------- */
   const launcher = document.createElement("button");
@@ -1654,6 +1657,29 @@
     }
   }
 
+  /* One-shot auto-confirm of the submit card: RFX_AUTO_CONFIRM_MS after the card is shown, save to
+     Reflex automatically so the rep doesn't have to click "Confirm & Save". This ONLY posts to our
+     /jobs/submitted (records the already-sent proposal in our DB) — it is not an Upwork action and
+     never auto-submits anything to Upwork. Guarded so it fires at most once per proposal, and only
+     while it's still the unsaved confirm card; on failure the manual button remains. */
+  function scheduleAutoConfirm() {
+    const pid = proposalSuccessId();
+    const pending = readSubmitPending();
+    if (!pid || !pending || !pending.job_id) return;             // nothing to record yet
+    if (rfxAutoConfirmedFor === pid) return;                     // already auto-confirmed this one
+    if (rfxSubmitState[pid] === "saving" || rfxSubmitState[pid] === "saved") return;
+    rfxAutoConfirmedFor = pid;
+    if (rfxAutoConfirmTimer) clearTimeout(rfxAutoConfirmTimer);
+    rfxAutoConfirmTimer = setTimeout(() => {
+      rfxAutoConfirmTimer = null;
+      // Re-check at fire time — the rep may have saved/navigated in the meantime.
+      if (!shouldShowSubmitConfirm() || proposalSuccessId() !== pid) return;
+      if (rfxSubmitState[pid] === "saving" || rfxSubmitState[pid] === "saved") return;
+      if (!root.querySelector("[data-submit-confirm]")) return;  // button gone (already saved)
+      confirmSubmitProposal(root.querySelector("#rfx-body") || root);
+    }, RFX_AUTO_CONFIRM_MS);
+  }
+
   // Numeric Upwork job id from the detail URL ciphertext (~0<version><numeric>).
   // Strip "~0" + the single version digit -> the numeric id that matches
   // jobs.upwork_job_id (verified: ~022069… -> 2069…). Best-effort; re-check on live.
@@ -2246,7 +2272,15 @@
 
     // success page: "Confirm & Save" records the submitted proposal against its job
     const sc = body.querySelector("[data-submit-confirm]");
-    if (sc) sc.addEventListener("click", () => confirmSubmitProposal(body));
+    if (sc) {
+      sc.addEventListener("click", () => confirmSubmitProposal(body));
+      // Auto-confirm: once the confirm card is visible, save to Reflex on its own after a short
+      // delay so the rep doesn't have to click. This posts ONLY to our /jobs/submitted (records
+      // the already-submitted proposal in our DB) — it never touches Upwork. One-shot per proposal
+      // (rfxAutoConfirmedFor), and re-checked at fire time so a manual save / re-render can't
+      // double-fire. On failure the manual button stays, so nothing is lost.
+      scheduleAutoConfirm();
+    }
 
     // job tab: "Apply on Upwork" is a plain <a href> (the apply URL built from the open job's
     // URL). The rep clicks the link themselves — no scripted navigation/automation here.

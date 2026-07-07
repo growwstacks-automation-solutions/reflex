@@ -119,6 +119,19 @@
 #rfx-root .rfx-ai-locked .rfx-edit[readonly]{opacity:1;color:var(--rfx-text);-webkit-text-fill-color:var(--rfx-text);
   background:var(--rfx-surface);cursor:default;border-color:var(--rfx-border)}
 #rfx-root .rfx-ai-locked .rfx-add-select:disabled{appearance:none;-webkit-appearance:none;-moz-appearance:none;padding-right:9px}
+/* Colour ONLY the background of the Relevance + Quality selects by value:
+   high=green, medium=blue, low=yellow. Text/border stay as-is; no functionality change.
+   :has(option:checked) reflects the CURRENT value, so it recolours live if it's changed.
+   Scoped to these two fields only (won't touch Type/Experience/Payment selects). */
+#rfx-root .rfx-add-ai .rfx-add-select[data-f="verdict"]:has(option[value="relevant"]:checked),
+#rfx-root .rfx-add-ai .rfx-add-select[data-f="quality"]:has(option[value="good"]:checked){
+  background:var(--rfx-green-b)}
+#rfx-root .rfx-add-ai .rfx-add-select[data-f="verdict"]:has(option[value="review"]:checked),
+#rfx-root .rfx-add-ai .rfx-add-select[data-f="quality"]:has(option[value="medium"]:checked){
+  background:var(--rfx-blue-b)}
+#rfx-root .rfx-add-ai .rfx-add-select[data-f="verdict"]:has(option[value="irrelevant"]:checked),
+#rfx-root .rfx-add-ai .rfx-add-select[data-f="quality"]:has(option[value="poor"]:checked){
+  background:var(--rfx-amber-b)}
 
 /* ---------- floating launcher ---------- */
 #rfx-launcher {

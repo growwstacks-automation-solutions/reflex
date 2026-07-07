@@ -8,6 +8,28 @@ to look to see where things stand. Newest entry at the top.
 
 ## Session log
 
+### 2026-07-07 — Colour-code the Relevance/Quality fields in the Add-to-Reflex card
+- **What:** the AI-classification **Relevance** and **Quality** selects now have a coloured
+  background by value — high=green, medium=blue, low=yellow — so the rep reads the verdict at a glance.
+  Mapping: Relevant/Good → green, Needs review/Medium → blue, Not a fit/Poor → yellow.
+- **Did (extension, `content/content.css` only — no JS):** added value-based rules using
+  `.rfx-add-select[data-f="verdict"|"quality"]:has(option[value=…]:checked)` with the existing
+  `--rfx-green-b`/`--rfx-blue-b`/`--rfx-amber-b` tokens (+ matching text tone). `:has(option:checked)`
+  reflects the current value, so it recolours live if the field is edited. Scoped to just these two
+  fields — the Type/Experience/Payment selects are untouched.
+
+### 2026-07-07 — Auto-confirm the post-submit "Save to Reflex" card (2s)
+- **What:** on the proposal success page, the confirmation card now **auto-saves to Reflex ~2s after
+  it appears** — the rep no longer has to click "Confirm & Save". The card still shows (submitted-by,
+  connects spent, proposal link) so it's visible; it just confirms itself.
+- **Safety:** this clicks Reflex's OWN save (posts `/jobs/submitted`, our DB) — it is **not** an
+  Upwork action and never auto-submits anything to Upwork (the Upwork submission already happened,
+  by the rep, before this card shows). Reactive-toward-Upwork contract is intact.
+- **Did (extension, `content/content.js`):** added `scheduleAutoConfirm()` (called where the confirm
+  button is wired) + state `rfxAutoConfirmedFor` / `rfxAutoConfirmTimer` + `RFX_AUTO_CONFIRM_MS` (2000).
+  One-shot per proposal id; re-checks at fire time (skips if already saving/saved or navigated); on
+  failure the manual button remains. Existing manual "Confirm & Save" path unchanged.
+
 ### 2026-07-07 — Cover-letter personalization: greet the client by name (from their reviews)
 - **What:** on Generate, if the client's first name can be found, the cover letter opens with
   "Hey <Name>" instead of "Hey there". Upwork hides the client's name, but a past freelancer
