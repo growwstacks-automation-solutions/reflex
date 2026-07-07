@@ -55,6 +55,62 @@ to look to see where things stand. Newest entry at the top.
   `wrangler secret put UPWORK_TOKEN_URL` + set `UPWORK_VIEWER_ID` var.
 - **Next:** panel click-test on a live thread; then move the sync onto the Worker cron (this is its
   human-clicked equivalent).
+### 2026-07-07 — Colour-code the Relevance/Quality fields in the Add-to-Reflex card
+- **What:** the AI-classification **Relevance** and **Quality** selects now have a coloured
+  background by value — high=green, medium=blue, low=yellow — so the rep reads the verdict at a glance.
+  Mapping: Relevant/Good → green, Needs review/Medium → blue, Not a fit/Poor → yellow.
+- **Did (extension, `content/content.css` only — no JS):** added value-based rules using
+  `.rfx-add-select[data-f="verdict"|"quality"]:has(option[value=…]:checked)` with the existing
+  `--rfx-green-b`/`--rfx-blue-b`/`--rfx-amber-b` tokens (+ matching text tone). `:has(option:checked)`
+  reflects the current value, so it recolours live if the field is edited. Scoped to just these two
+  fields — the Type/Experience/Payment selects are untouched.
+
+### 2026-07-07 — Auto-confirm the post-submit "Save to Reflex" card (2s)
+- **What:** on the proposal success page, the confirmation card now **auto-saves to Reflex ~2s after
+  it appears** — the rep no longer has to click "Confirm & Save". The card still shows (submitted-by,
+  connects spent, proposal link) so it's visible; it just confirms itself.
+- **Safety:** this clicks Reflex's OWN save (posts `/jobs/submitted`, our DB) — it is **not** an
+  Upwork action and never auto-submits anything to Upwork (the Upwork submission already happened,
+  by the rep, before this card shows). Reactive-toward-Upwork contract is intact.
+- **Did (extension, `content/content.js`):** added `scheduleAutoConfirm()` (called where the confirm
+  button is wired) + state `rfxAutoConfirmedFor` / `rfxAutoConfirmTimer` + `RFX_AUTO_CONFIRM_MS` (2000).
+  One-shot per proposal id; re-checks at fire time (skips if already saving/saved or navigated); on
+  failure the manual button remains. Existing manual "Confirm & Save" path unchanged.
+
+### 2026-07-07 — Cover-letter personalization: greet the client by name (from their reviews)
+- **What:** on Generate, if the client's first name can be found, the cover letter opens with
+  "Hey <Name>" instead of "Hey there". Upwork hides the client's name, but a past freelancer
+  sometimes names them in a public review ("great working with Nathan") — we mine that.
+- **Design:** a **dedicated, separate** name-extraction step — it does NOT touch the proposal
+  pipeline. The extracted name is fed through the **already-existing** `client_name_hint`, which
+  the proposal template already turns into the greeting (template lines 33 / 158-159 / 194-195).
+  So `/generate`, `generate.ts`, `prompt.ts`, and the proposal template are **unchanged**.
+- **Did (API — new files):**
+  - `reflex-client-name-prompt.template.txt` — dedicated, editable extraction prompt. Returns a
+    first name only when a reviewer clearly names the client; never guesses/invents; never returns
+    a freelancer name. When several DIFFERENT client names appear, it picks the MOST APPROPRIATE
+    (clearest/most-consistent client reference; tie → most recent job, since reviews are sent
+    most-recent-first) rather than giving up — `null` is reserved for when no client name exists.
+  - `clientName.ts` — `extractClientName()` (mirrors `classify()`): cached system prompt + review
+    snippets → Haiku (MAX_TOKENS 32) → validated `{ client_name: string|null }` + cost/tokens.
+- **Did (API — additive):** `index.ts` — new route `POST /jobs/client-name` → `clientNameHandler`
+  (auth-gated; **empty reviews short-circuit to `{ client_name: null }` with no model call**).
+- **Did (extension — additive):** `background.js` — `EXTRACT_CLIENT_NAME` proxy → `/jobs/client-name`.
+  `content/content.js` — `readClientReviewSnippets()` (reactive DOM read of the "Client's recent
+  history" freelancer→client reviews via stable `data-cy` anchors; works on the full job page AND
+  the slide-over; skips the "To freelancer:" reviews that name the freelancer) + `apiExtractClientName()`;
+  `startGeneration` now fills the previously-hardcoded `client_name_hint: null` with the extracted name.
+- **Fallback (unchanged behavior):** no reviews on the page (apply page / new client), no clear
+  name, or any error → `null` → "Hey there". Non-fatal: never blocks generation.
+- **Live stage line (UX):** the "Writing your proposal…" waiting card now shows a **live status**
+  that advances through the real steps — "Analyzing the job…" → "Extracting client name from client
+  reviews…" (only when reviews exist) → "Matching your work samples & Loom…" → "Writing your
+  proposal…". Driven by a new `setGenStage()` that updates the line in place (via `[data-rfx-gen-stage]`),
+  so the rep can see which stage is running. The matching→writing flip mirrors the Worker's real
+  order (matchAssets runs first inside `/generate`, then Claude writes).
+- **Verified:** API `tsc --noEmit` green. **Live test pending:** reload extension + `npm run deploy`
+  the Worker, open a job whose client history contains a name (e.g. "…working with Nathan"), Generate,
+  confirm the greeting; also confirm a no-history page still yields "Hey there".
 
 ### 2026-07-03 — Listing tab now detects jobs on the find-work feed (best-matches / most-recent) ✅ working
 - **Problem:** on `upwork.com/nx/find-work/best-matches` and `/most-recent` the panel's Listing tab
