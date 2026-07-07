@@ -13,16 +13,22 @@ import { persistProposalDraft } from "./saveProposal";
 import { proposalDraft } from "./proposalDraft";
 import { jobSubmitted } from "./submitted";
 import { fillLoomPlaceholders } from "./looms";
+import { syncMessages, suggestReply } from "./messages";
 
 export interface Env {
   // Secrets (NOT in wrangler.toml): .dev.vars locally, `wrangler secret put` in prod.
   ANTHROPIC_API_KEY: string;
   DATABASE_URL: string;
   JWT_SECRET: string;
+  // Secret: URL that mints an Upwork access token for the Messages API (returns [{accessToken}]).
+  // .dev.vars locally, `wrangler secret put UPWORK_TOKEN_URL` in prod.
+  UPWORK_TOKEN_URL: string;
   // Non-secret config ([vars] in wrangler.toml).
   ANTHROPIC_MODEL: string;
   USD_TO_INR: string;
   REFLEX_GENERATION_STUB: string;
+  // Optional: our Upwork user id — lets the message sync label our own messages as "us" vs "client".
+  UPWORK_VIEWER_ID?: string;
 }
 
 interface GenerateBody extends JobOverrides {
@@ -47,6 +53,8 @@ export default {
     if (route === "POST /jobs/add") return addJob(req, env);
     if (route === "POST /jobs/submitted") return jobSubmitted(req, env);
     if (route === "POST /jobs/classify") return classifyHandler(req, env);
+    if (route === "POST /messages/sync") return syncMessages(req, env);
+    if (route === "POST /messages/suggest") return suggestReply(req, env);
     return json({ error: "Not found." }, 404);
   },
 };
