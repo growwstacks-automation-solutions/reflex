@@ -122,6 +122,7 @@
   let activeTone = "base";
   let rfxLastOpenId = ""; // last Upwork job id seen open — drives auto-switch to the Job tab
   let rfxGenState = "idle"; // proposal generation: "idle" | "generating" | "ready" | "error"
+  let rfxGenStage = "";     // live status line shown while generating (which step we're on)
   let rfxGenJobId = "";     // the job the current proposal draft is for
   let rfxGenResult = null;  // the /generate response (cover letter, answers, portfolio recs, cost)
   let rfxGenError = "";     // last generation error message
@@ -291,12 +292,22 @@
     } catch (e) { rfxAuth = null; if (cb) cb(); }
   }
 
+  /* Update the live "which stage" line shown while a proposal is generating. Updates the
+     element in place (no full re-render) so it stays smooth; rfxGenStage keeps the value so a
+     re-render (e.g. the mirror) shows the same stage. No-op once generation isn't showing. */
+  function setGenStage(text) {
+    rfxGenStage = text;
+    const el = root.querySelector("[data-rfx-gen-stage]");
+    if (el) el.textContent = text;
+  }
+
   /* Generate a proposal: switch to the Proposal tab, show a waiting state, then call
      the Worker's /generate (Claude) via the background worker and reveal the draft. */
   async function startGeneration(jobId, opts) {
     const stay = !!(opts && opts.stay); // Job tab: render the proposal inline, stay on this tab
     rfxGenJobId = jobId || openJobNumericId();
     rfxGenState = "generating";
+    rfxGenStage = "Analyzing the job…";   // first live status line (advanced through the steps below)
     rfxGenResult = null;
     rfxAssets = [];
     rfxLooms = [];
@@ -308,13 +319,32 @@
     render();
     if (stay) scrollToJobProposal();
     const open = readOpenJob();                       // page-captured context the DB row lacks
+    // Personalization: a client's name is hidden on Upwork, but a past freelancer sometimes names
+    // them in their public review. Read those review snippets (reactive, read-only) and let the
+    // Worker's dedicated extractor pull a first name — so the greeting can be "Hey <Name>" instead
+    // of "Hey there". Best-effort + non-fatal: no reviews / no clear name / any error -> null ->
+    // the existing "Hey there" fallback. Never blocks generation.
+    let clientNameHint = null;
+    try {
+      const reviews = readClientReviewSnippets();
+      if (reviews.length) {
+        setGenStage("Extracting client name from client reviews…");
+        const nameResp = await apiExtractClientName(reviews);
+        if (nameResp && nameResp.client_name) clientNameHint = nameResp.client_name;
+      }
+    } catch (e) { /* non-fatal — fall back to the generic greeting */ }
     const payload = {
       job_id: rfxGenJobId || "STUB-0001",             // stub mode ignores the id; real mode uses it
       screening_questions: readScreeningQuestionTexts(), // read from the apply page (else none)
-      client_name_hint: null,                         // backend key (renamed in the merge)
+      client_name_hint: clientNameHint,               // backend key (renamed in the merge)
       client_context: open && open.client && open.client.length ? open.client.join(" · ") : undefined,
     };
+    // The Worker matches work samples/Loom first inside /generate, then Claude writes — reflect
+    // that real ordering: show "matching" now, then flip to "writing" if it's still running.
+    setGenStage("Matching your work samples & Loom…");
+    const writingTimer = setTimeout(() => setGenStage("Writing your proposal…"), 1200);
     const resp = await apiGenerate(payload);
+    clearTimeout(writingTimer);
     if (resp && resp.result && !resp.error) {
       rfxGenResult = resp.result;
       // Real work samples + Loom for this job, straight from the /generate response
@@ -343,6 +373,41 @@
           resolve(resp);
         });
       } catch (e) { resolve({ error: String(e) }); }
+    });
+  }
+
+  /* Read the client's PUBLIC review snippets from the "Client's recent history" section on the
+     job-details page — the feedback PAST FREELANCERS left about this client, which is where a
+     client's name occasionally leaks (e.g. "great working with Nathan"). We take only the
+     freelancer→client reviews (the block WITHOUT "To freelancer:") and skip the client→freelancer
+     reviews (those name the freelancer, not the client). Read-only, reactive. Returns [] when the
+     section isn't on the page (apply page, or a brand-new client with no history) → "Hey there".
+     Anchored on stable data-cy attrs, so it works on both the full job page and the slide-over. */
+  function readClientReviewSnippets() {
+    const items = document.querySelectorAll("[data-cy='jobs'] [data-cy='job']");
+    const out = [];
+    items.forEach((item) => {
+      item.querySelectorAll(".main .text-body-sm").forEach((block) => {
+        // "To freelancer: <name>" block = the client's review OF the freelancer — skip it.
+        if (/to\s+freelancer/i.test(block.textContent || "")) return;
+        const trunc = block.querySelector(".air3-truncation [id^='air3-truncation-']");
+        const t = trunc ? (trunc.textContent || "").replace(/\s+/g, " ").trim() : "";
+        if (t && !/no feedback given/i.test(t)) out.push(t.slice(0, 300));
+      });
+    });
+    return out.slice(0, 8);
+  }
+
+  // Ask the background worker to POST /jobs/client-name. Resolves to { client_name } (string|null)
+  // or null on any error — the caller treats a missing name as "Hey there" (never blocks generate).
+  function apiExtractClientName(reviews) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type: "EXTRACT_CLIENT_NAME", payload: { reviews } }, (resp) => {
+          if (chrome.runtime.lastError || !resp) { resolve(null); return; }
+          resolve(resp);
+        });
+      } catch (e) { resolve(null); }
     });
   }
 
@@ -1872,15 +1937,17 @@
       ? `<div class="rfx-prop-job"><div class="rfx-prop-job-cap">Proposal for</div><div class="rfx-prop-job-title">${esc(open.title)}</div></div>`
       : "";
 
-    // Generating — show a waiting state while Claude writes (UI-only for now).
+    // Generating — show a waiting state while Claude writes. The bold line is a LIVE status
+    // that startGeneration advances through the stages (client name → work samples/Loom →
+    // writing) via setGenStage(), so the rep sees which step is running.
     if (rfxGenState === "generating") {
       return `
         ${jobHead}
         <div class="rfx-gen-wait">
           <span class="rfx-spin dark big"></span>
           <div class="rfx-gen-wait-t">
-            <b>Writing your proposal…</b>
-            <span>${SYSTEM_NAME} is drafting the cover letter and answers, and picking the right work samples + Loom for this job.</span>
+            <b data-rfx-gen-stage>${esc(rfxGenStage || "Writing your proposal…")}</b>
+            <span>${SYSTEM_NAME} takes a few seconds — you'll review everything before it goes to Upwork.</span>
           </div>
         </div>`;
     }

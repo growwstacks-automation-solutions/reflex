@@ -40,6 +40,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         .then((result) => sendResponse({ result }))
         .catch((e) => sendResponse({ error: errMsg(e) }));
       return true;
+    case "EXTRACT_CLIENT_NAME":
+      extractClientName(msg.payload || {})
+        .then((data) => sendResponse(data))
+        .catch((e) => sendResponse({ error: errMsg(e) }));
+      return true;
     case "ADD_JOB":
       addJob(msg.payload || {})
         .then((data) => sendResponse(data))
@@ -143,6 +148,20 @@ async function generateProposal(payload) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data && data.error ? data.error : `GENERATE ${res.status}`);
+  return data;
+}
+
+// POST the client's public review snippets to the Worker; returns { client_name } (the client's
+// first name if a reviewer named them, else null) so the proposal can greet them by name. Fully
+// separate from /generate — the content script calls this first, then passes client_name_hint on.
+async function extractClientName(payload) {
+  const res = await fetch(`${API_BASE}/jobs/client-name`, {
+    method: "POST",
+    headers: await authHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data && data.error ? data.error : `CLIENT_NAME ${res.status}`);
   return data;
 }
 

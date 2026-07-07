@@ -8,6 +8,41 @@ to look to see where things stand. Newest entry at the top.
 
 ## Session log
 
+### 2026-07-07 — Cover-letter personalization: greet the client by name (from their reviews)
+- **What:** on Generate, if the client's first name can be found, the cover letter opens with
+  "Hey <Name>" instead of "Hey there". Upwork hides the client's name, but a past freelancer
+  sometimes names them in a public review ("great working with Nathan") — we mine that.
+- **Design:** a **dedicated, separate** name-extraction step — it does NOT touch the proposal
+  pipeline. The extracted name is fed through the **already-existing** `client_name_hint`, which
+  the proposal template already turns into the greeting (template lines 33 / 158-159 / 194-195).
+  So `/generate`, `generate.ts`, `prompt.ts`, and the proposal template are **unchanged**.
+- **Did (API — new files):**
+  - `reflex-client-name-prompt.template.txt` — dedicated, editable extraction prompt. Returns a
+    first name only when a reviewer clearly names the client; never guesses/invents; never returns
+    a freelancer name. When several DIFFERENT client names appear, it picks the MOST APPROPRIATE
+    (clearest/most-consistent client reference; tie → most recent job, since reviews are sent
+    most-recent-first) rather than giving up — `null` is reserved for when no client name exists.
+  - `clientName.ts` — `extractClientName()` (mirrors `classify()`): cached system prompt + review
+    snippets → Haiku (MAX_TOKENS 32) → validated `{ client_name: string|null }` + cost/tokens.
+- **Did (API — additive):** `index.ts` — new route `POST /jobs/client-name` → `clientNameHandler`
+  (auth-gated; **empty reviews short-circuit to `{ client_name: null }` with no model call**).
+- **Did (extension — additive):** `background.js` — `EXTRACT_CLIENT_NAME` proxy → `/jobs/client-name`.
+  `content/content.js` — `readClientReviewSnippets()` (reactive DOM read of the "Client's recent
+  history" freelancer→client reviews via stable `data-cy` anchors; works on the full job page AND
+  the slide-over; skips the "To freelancer:" reviews that name the freelancer) + `apiExtractClientName()`;
+  `startGeneration` now fills the previously-hardcoded `client_name_hint: null` with the extracted name.
+- **Fallback (unchanged behavior):** no reviews on the page (apply page / new client), no clear
+  name, or any error → `null` → "Hey there". Non-fatal: never blocks generation.
+- **Live stage line (UX):** the "Writing your proposal…" waiting card now shows a **live status**
+  that advances through the real steps — "Analyzing the job…" → "Extracting client name from client
+  reviews…" (only when reviews exist) → "Matching your work samples & Loom…" → "Writing your
+  proposal…". Driven by a new `setGenStage()` that updates the line in place (via `[data-rfx-gen-stage]`),
+  so the rep can see which stage is running. The matching→writing flip mirrors the Worker's real
+  order (matchAssets runs first inside `/generate`, then Claude writes).
+- **Verified:** API `tsc --noEmit` green. **Live test pending:** reload extension + `npm run deploy`
+  the Worker, open a job whose client history contains a name (e.g. "…working with Nathan"), Generate,
+  confirm the greeting; also confirm a no-history page still yields "Hey there".
+
 ### 2026-07-03 — Listing tab now detects jobs on the find-work feed (best-matches / most-recent) ✅ working
 - **Problem:** on `upwork.com/nx/find-work/best-matches` and `/most-recent` the panel's Listing tab
   showed "No Upwork jobs detected," though the page was full of jobs. Cause: `readVisibleTiles()`

@@ -9,6 +9,7 @@ import { reps, assignJob } from "./assign";
 import { addJob } from "./addJob";
 import { matchAssets } from "./matchAssets";
 import { classify, type ClassifyJob } from "./classify";
+import { extractClientName } from "./clientName";
 import { persistProposalDraft } from "./saveProposal";
 import { proposalDraft } from "./proposalDraft";
 import { jobSubmitted } from "./submitted";
@@ -47,6 +48,7 @@ export default {
     if (route === "POST /jobs/add") return addJob(req, env);
     if (route === "POST /jobs/submitted") return jobSubmitted(req, env);
     if (route === "POST /jobs/classify") return classifyHandler(req, env);
+    if (route === "POST /jobs/client-name") return clientNameHandler(req, env);
     return json({ error: "Not found." }, 404);
   },
 };
@@ -198,5 +200,40 @@ async function classifyHandler(req: Request, env: Env): Promise<Response> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return json({ error: `Classification failed: ${message}` }, 500);
+  }
+}
+
+// POST /jobs/client-name — extract the client's first name from their public reviews (feedback
+// past freelancers left about them) so the proposal can greet them by name. Auth-gated; no DB
+// write. Empty reviews (e.g. the apply page or a brand-new client with no history) short-circuit
+// to { client_name: null } with NO model call — the greeting then falls back to "Hey there".
+async function clientNameHandler(req: Request, env: Env): Promise<Response> {
+  if (!env.ANTHROPIC_API_KEY) {
+    return json({ error: "Server misconfigured: ANTHROPIC_API_KEY is not set." }, 500);
+  }
+  const claims = await authUser(req, env);
+  if (!claims) return json({ error: "Unauthorized" }, 401);
+
+  let body: { reviews?: unknown };
+  try {
+    body = (await req.json()) as { reviews?: unknown };
+  } catch {
+    return json({ error: "Body must be JSON." }, 400);
+  }
+
+  const reviews = Array.isArray(body.reviews)
+    ? body.reviews.map((r) => String(r).trim()).filter(Boolean).slice(0, 8)
+    : [];
+  if (reviews.length === 0) return json({ client_name: null });
+
+  const model = env.ANTHROPIC_MODEL || "claude-haiku-4-5";
+  const usdToInr = Number.parseFloat(env.USD_TO_INR || "86") || 86;
+  try {
+    const result = await extractClientName(env.ANTHROPIC_API_KEY, model, reviews, usdToInr);
+    console.log("[clientName]", result.client_name ?? "(none)", "· ₹", result.cost_inr, "·", result.tokens, "tokens");
+    return json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return json({ error: `Client-name extraction failed: ${message}` }, 500);
   }
 }
