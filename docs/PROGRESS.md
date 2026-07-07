@@ -8,6 +8,20 @@ to look to see where things stand. Newest entry at the top.
 
 ## Session log
 
+### 2026-07-07 — Fix: board.ts broke at runtime on @neondatabase/serverless 0.10.4 (`sql.query` → `sql(text,params)`)
+- **Problem:** `board.ts` used `sql.query(text, params)` in 3 places, but the installed neon **0.10.4**
+  http client has **no `.query` method** (it's on Pool/Client only) — `typeof sql.query === "undefined"`.
+  So `GET /board` threw at runtime, and `tsc` reported 3 errors (`Property 'query' does not exist on
+  NeonQueryFunction`). Latent because the board's SQL had only ever been "verified" by running it
+  directly on Neon, not through the Worker's `sql.query` path. Extension is unaffected — only the
+  **portal** calls `/board`.
+- **Did:** switched the 3 calls to the neon http function's **ordinary-call form** `sql(text, params)`
+  (the parameterized non-template signature that IS in 0.10.4's types + runtime). No logic change —
+  same SQL, same bound params. Updated the header comment.
+- **Verified:** `tsc --noEmit` now **0 errors**; ran the exact call form live —
+  `sql("select $1::int, count(*) from jobs",[7])` → `{n:7, jobs:4510}`; `wrangler dry-run` builds
+  (845 KiB). This also un-breaks the portal board under 0.10.4.
+
 ### 2026-07-07 — Messages sync + suggested reply (extension Messages tab) — staged, NOT yet live-verified
 - **What:** the panel's **Messages** tab is now real (was fully mocked). Two actions on the open
   Upwork conversation: **Sync messages** (pulls the room's messages into `thread_messages` via the

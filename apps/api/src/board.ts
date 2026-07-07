@@ -13,8 +13,10 @@
 // filters, search, sort, and LIMIT/OFFSET all run in Postgres now (they used to run in
 // the browser over the whole payload). Response: { jobs, total, page, page_size }.
 //
-// Built with sql.query(text, params) — the parameterized (non-template) form — so the
-// WHERE/ORDER clauses can be composed dynamically while every value stays bound ($1…).
+// Built with the neon http function's ordinary-call form sql(text, params) — the parameterized
+// (non-template) form — so the WHERE/ORDER clauses can be composed dynamically while every value
+// stays bound ($1…). (NB: it's sql(text, params), NOT sql.query(...); the http client has no
+// .query method in @neondatabase/serverless 0.10.x — that lives on Pool/Client only.)
 // board_for_user() stays rejected: it lacks the post-0001 columns and the per-requester
 // scope, and widening it would be a schema change.
 import { neon } from "@neondatabase/serverless";
@@ -137,7 +139,7 @@ export async function board(req: Request, env: Env): Promise<Response> {
   const sql = neon(env.DATABASE_URL);
 
   // ── Total (for page count) — references only the WHERE params built above ──
-  const countRows = (await sql.query(
+  const countRows = (await sql(
     `select count(*)::int as total ${FROM_JOINS} ${whereSql}`,
     [...params],
   )) as Array<{ total: number }>;
@@ -150,7 +152,7 @@ export async function board(req: Request, env: Env): Promise<Response> {
   const limitP = `$${params.length - 1}`;
   const offsetP = `$${params.length}`;
 
-  const rows = (await sql.query(
+  const rows = (await sql(
     `select ${selectCols(isMineP)}
      ${FROM_JOINS}
      ${whereSql}
@@ -171,7 +173,7 @@ export async function board(req: Request, env: Env): Promise<Response> {
   // no WHERE → zero placeholders, so binding a param would error ("supplies 1 … requires 0").
   const statsParams = statsWhere.length ? [user.sub] : [];
 
-  const statsRows = (await sql.query(
+  const statsRows = (await sql(
     `select
        count(*)::int as on_board,
        count(*) filter (where j.verdict = 'relevant')::int as relevant,

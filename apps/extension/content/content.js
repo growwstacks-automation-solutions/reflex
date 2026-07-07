@@ -124,7 +124,10 @@
   let rfxAwaitOpenForGen = null; // jobId the rep wants to generate for from the listing — waiting for them to open it
   let rfxSubmitState = {};    // proposalId -> "saving" | "saved" (success-page confirm card state)
   let rfxSuccessShownFor = ""; // proposalId we've already rendered the success card for (render-once guard)
-<<<<<<< HEAD
+  let rfxAutoConfirmedFor = ""; // proposalId we've already auto-confirmed (one-shot dedupe)
+  let rfxAutoConfirmTimer = null; // pending auto-confirm timer, so re-renders don't stack timers
+  const RFX_AUTO_CONFIRM_MS = 2000; // auto-click "Confirm & Save" this long after the card shows
+
   // Messages tab (real): sync + suggested reply for the open Upwork conversation.
   let rfxMsg = {
     room: "",            // room_id parsed from the tab URL
@@ -172,11 +175,6 @@
         : d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     } catch (e) { return ""; }
   }
-=======
-  let rfxAutoConfirmedFor = ""; // proposalId we've already auto-confirmed (one-shot dedupe)
-  let rfxAutoConfirmTimer = null; // pending auto-confirm timer, so re-renders don't stack timers
-  const RFX_AUTO_CONFIRM_MS = 2000; // auto-click "Confirm & Save" this long after the card shows
->>>>>>> 432fe4665ceb58ccd55b6db142347735463eb404
 
   /* ---------- build launcher ---------- */
   const launcher = document.createElement("button");

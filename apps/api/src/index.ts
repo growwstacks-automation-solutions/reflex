@@ -54,12 +54,9 @@ export default {
     if (route === "POST /jobs/add") return addJob(req, env);
     if (route === "POST /jobs/submitted") return jobSubmitted(req, env);
     if (route === "POST /jobs/classify") return classifyHandler(req, env);
-<<<<<<< HEAD
+    if (route === "POST /jobs/client-name") return clientNameHandler(req, env);
     if (route === "POST /messages/sync") return syncMessages(req, env);
     if (route === "POST /messages/suggest") return suggestReply(req, env);
-=======
-    if (route === "POST /jobs/client-name") return clientNameHandler(req, env);
->>>>>>> 432fe4665ceb58ccd55b6db142347735463eb404
     return json({ error: "Not found." }, 404);
   },
 };
