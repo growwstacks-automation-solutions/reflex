@@ -52,6 +52,21 @@ is FLEXIBLE in position — see the placement rules. Block 6 is the CTA.
    - Format: "Let's get your [outcome from hook, shortened] up and running!"
    - Echo the hook's outcome language for consistency.
 
+### Client questions inside the job description (CONDITIONAL — include only if present)
+Some clients embed direct questions in the job DESCRIPTION prose itself — e.g. "What's your
+experience with X?", "How would you approach Y?", "Do you have Z?", "Can you share an example
+of…?". These are DIFFERENT from the formal screening questions in {{SCREENING_QUESTIONS}};
+those are answered ONLY in screening_answers (the separate fields), never in the letter.
+IF — and only if — the job description contains such client questions:
+- Add a short "answers" section as the letter's ending, placed immediately BEFORE the CTA line
+  (block 6), after the credibility/Loom lines.
+- Start it with a brief lead-in line (e.g. "To answer your questions:"), then answer each
+  question concisely in our voice — one per line, each prefixed with "- " (plain text, no
+  markdown, no numbering). Keep each answer tight (ideally one sentence) and nicely formatted
+  so it scans cleanly.
+- Stay fully compliant (no contact info, no off-platform language, same rules as the rest).
+IF the description contains no client questions, omit this section entirely — never invent one.
+
 ### Separator lines
 Use a single row of "." or "=" characters as a visual separator. Pick ONE character and use
 it consistently for both separators in a single letter (matching the visual weight of the
@@ -150,6 +165,9 @@ Skills required: {{JOB_SKILLS}}
 
 Description:
 {{JOB_DESCRIPTION}}
+# ^ If the client embedded direct questions in this description text, answer them in the cover
+#   letter's closing section (see "Client questions inside the job description"). Do NOT put those
+#   answers in screening_answers — that array is only for {{SCREENING_QUESTIONS}} below.
 
 ## About the client
 {{CLIENT_CONTEXT}}
@@ -160,7 +178,10 @@ Client first name (from the name hint — may be empty; use only if present, nev
 
 ## Screening questions to answer (may be empty)
 {{SCREENING_QUESTIONS}}
-# ^ Injected: the list of screening questions from the job. Answer each in our voice.
+# ^ Injected: the FORMAL screening questions (Upwork's "You will be asked to answer…" list).
+#   Answer each in our voice in screening_answers ONLY — these go in separate fields, NOT the
+#   cover letter. Questions embedded in the job description prose are handled separately (in the
+#   letter's closing section), not here.
 
 ## Similar proposals we've won before (reference for tone/approach, do not copy)
 {{PAST_WINNERS}}
@@ -173,7 +194,7 @@ Client first name (from the name hint — may be empty; use only if present, nev
 Return ONLY a valid JSON object in exactly this shape, with no preamble, no markdown fences:
 
 {
-  "cover_letter": "string — the full GrowwStacks cover letter (blocks 1–6 above) as plain text, already compliant with the Upwork compliance rules. Use \\n for line breaks. Keep the two [LOOM_TITLE_n] — [LOOM_LINK_n] placeholder lines verbatim, with a short lead-in line.",
+  "cover_letter": "string — the full GrowwStacks cover letter (blocks 1–6 above) as plain text, already compliant with the Upwork compliance rules. Use \\n for line breaks. Keep the two [LOOM_TITLE_n] — [LOOM_LINK_n] placeholder lines verbatim, with a short lead-in line. If the job description embedded client questions, answer them in the closing section before the CTA (see the CONDITIONAL rule); otherwise omit that section.",
   "screening_answers": [
     { "question": "string — the question text", "answer": "string — our answer in our voice" }
   ],

@@ -203,6 +203,7 @@
     </div>
     <div class="rfx-body" id="rfx-body"></div>
     <div class="rfx-footer"><span class="rfx-sync-dot"></span> Listing is live from Reflex · sign in to sync your assignments</div>
+    <div class="rfx-resize" title="Drag to resize width"></div>
   `;
   document.body.appendChild(root);
 
@@ -230,6 +231,52 @@
     applySide(next);
     try { chrome.storage.local.set({ rfx_side: next }); } catch (e) { /* ignore */ }
   });
+
+  // ---------- panel width (drag the inner edge to widen / narrow) ----------
+  // The handle sits on the panel's INNER edge (left edge when docked right, right edge when
+  // docked left). Dragging it resizes the panel; the width persists in chrome.storage.local like
+  // the side, so it survives reloads. Pure UI — never touches Upwork.
+  const RFX_MIN_W = 340, RFX_MAX_W = 900;
+  function clampWidth(w) {
+    const cap = Math.max(RFX_MIN_W, Math.min(RFX_MAX_W, window.innerWidth - 24));
+    return Math.round(Math.min(cap, Math.max(RFX_MIN_W, w)));
+  }
+  function applyWidth(w) { if (w) root.style.width = clampWidth(w) + "px"; }
+  try {
+    chrome.storage.local.get("rfx_width", (r) => { if (r && r.rfx_width) applyWidth(r.rfx_width); });
+  } catch (e) { /* storage unavailable — keep the default width */ }
+
+  (function wireResize() {
+    const handle = root.querySelector(".rfx-resize");
+    if (!handle) return;
+    let dragging = false;
+    // Docked right: the right edge is pinned (right:12px) so width grows as the cursor moves LEFT.
+    // Docked left: the left edge is pinned (left:12px) so width grows as the cursor moves RIGHT.
+    const onMove = (e) => {
+      if (!dragging) return;
+      const w = rfxSide === "left" ? (e.clientX - 12) : (window.innerWidth - 12 - e.clientX);
+      root.style.width = clampWidth(w) + "px";
+      e.preventDefault();
+    };
+    const onUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      root.classList.remove("rfx-resizing");
+      document.removeEventListener("mousemove", onMove, true);
+      document.removeEventListener("mouseup", onUp, true);
+      const w = parseInt(root.style.width, 10);
+      if (w) { try { chrome.storage.local.set({ rfx_width: w }); } catch (e) { /* ignore */ } }
+    };
+    handle.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;            // left-drag only
+      dragging = true;
+      root.classList.add("rfx-resizing");     // kills the slide transition + text selection mid-drag
+      // Capture phase so moves over Upwork's own elements still reach us.
+      document.addEventListener("mousemove", onMove, true);
+      document.addEventListener("mouseup", onUp, true);
+      e.preventDefault();
+    });
+  })();
   root.querySelectorAll(".rfx-tab").forEach(tab => {
     tab.addEventListener("click", () => {
       const s = tab.dataset.s;
@@ -372,7 +419,7 @@
     } catch (e) { /* non-fatal — fall back to the generic greeting */ }
     const payload = {
       job_id: rfxGenJobId || "STUB-0001",             // stub mode ignores the id; real mode uses it
-      screening_questions: readScreeningQuestionTexts(), // read from the apply page (else none)
+      screening_questions: readScreeningQuestionTexts(), // apply-page boxes, else the job-details "You will be asked…" list
       client_name_hint: clientNameHint,               // backend key (renamed in the merge)
       client_context: open && open.client && open.client.length ? open.client.join(" · ") : undefined,
     };
@@ -498,10 +545,55 @@
     if (surface === "job") render();
   }
 
-  // Screening question texts on the current page (apply page). Empty elsewhere.
+  // Screening question texts for the current job. Prefer the apply page's real <textarea>s;
+  // on the job-details page fall back to the "You will be asked to answer…" list in the
+  // description. Empty when neither is present.
   function readScreeningQuestionTexts() {
-    try { return readScreeningQuestions().map((q) => q.question).filter(Boolean); }
-    catch (e) { return []; }
+    try {
+      const applyQs = readScreeningQuestions().map((q) => q.question).filter(Boolean);
+      if (applyQs.length) return applyQs;
+      return readDescriptionScreeningQuestions();
+    } catch (e) { return []; }
+  }
+
+  /* Screening questions embedded in the JOB-DETAILS page. Upwork lists them under
+     "You will be asked to answer the following questions when submitting a proposal:" as a
+     numbered list — the apply page turns these into real answer boxes (readScreeningQuestions),
+     but on the details page they only exist as text, so parse them here. Read-only. Returns []
+     when the block isn't on the page. */
+  function readDescriptionScreeningQuestions() {
+    const region = findDetailRegion() || document;
+    const HEAD_RE = /you will be asked to answer the following questions/i;
+
+    // Preferred: find the heading, then the first <ol>/<ul> that follows it (document order).
+    const all = Array.from(region.querySelectorAll("*"));
+    const headIdx = all.findIndex((el) =>
+      el.children.length === 0 && HEAD_RE.test(el.textContent || ""));
+    if (headIdx >= 0) {
+      for (let i = headIdx + 1; i < all.length && i < headIdx + 40; i++) {
+        const el = all[i];
+        if (el.tagName === "OL" || el.tagName === "UL") {
+          const qs = Array.from(el.querySelectorAll("li"))
+            .map((li) => (li.textContent || "").replace(/\s+/g, " ").trim())
+            .filter(Boolean);
+          if (qs.length) return qs.slice(0, 12);
+        }
+      }
+    }
+
+    // Fallback: parse the flattened region text after the heading phrase ("1. … 2. …").
+    const text = (region.textContent || "").replace(/\s+/g, " ");
+    const m = text.match(HEAD_RE);
+    if (!m) return [];
+    const after = text.slice(m.index + m[0].length).replace(/^[:\s]+/, "").slice(0, 2000);
+    const qs = [];
+    const re = /(\d{1,2})[.)]\s+(.+?)(?=\s+\d{1,2}[.)]\s+|$)/g;
+    let mm;
+    while ((mm = re.exec(after)) && qs.length < 12) {
+      const q = mm[2].replace(/\s+/g, " ").trim().slice(0, 240);
+      if (q) qs.push(q);
+    }
+    return qs;
   }
 
   /* ---- Add to Reflex (inline review card) ----
