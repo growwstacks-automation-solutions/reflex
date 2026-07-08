@@ -24,6 +24,8 @@
   --rfx-red-t:#A32D2D;   --rfx-red-b:#FCEBEB;
   --rfx-blue-t:#0C447C;  --rfx-blue-b:#E6F1FB;
   --rfx-purple-t:#3C3489;--rfx-purple-b:#EEEDFE;
+  /* Monday.com status colours (solid, white text) — used for relevance/quality tags */
+  --rfx-mon-green:#00C875; --rfx-mon-orange:#FDAB3D; --rfx-mon-red:#E2445C;
 
   --rfx-sans: "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --rfx-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -119,19 +121,21 @@
 #rfx-root .rfx-ai-locked .rfx-edit[readonly]{opacity:1;color:var(--rfx-text);-webkit-text-fill-color:var(--rfx-text);
   background:var(--rfx-surface);cursor:default;border-color:var(--rfx-border)}
 #rfx-root .rfx-ai-locked .rfx-add-select:disabled{appearance:none;-webkit-appearance:none;-moz-appearance:none;padding-right:9px}
-/* Colour ONLY the background of the Relevance + Quality selects by value:
-   high=green, medium=blue, low=yellow. Text/border stay as-is; no functionality change.
-   :has(option:checked) reflects the CURRENT value, so it recolours live if it's changed.
-   Scoped to these two fields only (won't touch Type/Experience/Payment selects). */
+/* Colour the Relevance + Quality selects by value with Monday.com status colours (solid + white
+   text): Relevant/Good=green, Needs review/Medium=orange, Not a fit/Poor=red. :has(option:checked)
+   reflects the CURRENT value, so it recolours live if changed. Scoped to these two fields only. */
 #rfx-root .rfx-add-ai .rfx-add-select[data-f="verdict"]:has(option[value="relevant"]:checked),
 #rfx-root .rfx-add-ai .rfx-add-select[data-f="quality"]:has(option[value="good"]:checked){
-  background:var(--rfx-green-b)}
+  background:var(--rfx-mon-green);border-color:var(--rfx-mon-green);color:#fff;-webkit-text-fill-color:#fff}
 #rfx-root .rfx-add-ai .rfx-add-select[data-f="verdict"]:has(option[value="review"]:checked),
 #rfx-root .rfx-add-ai .rfx-add-select[data-f="quality"]:has(option[value="medium"]:checked){
-  background:var(--rfx-blue-b)}
+  background:var(--rfx-mon-orange);border-color:var(--rfx-mon-orange);color:#fff;-webkit-text-fill-color:#fff}
 #rfx-root .rfx-add-ai .rfx-add-select[data-f="verdict"]:has(option[value="irrelevant"]:checked),
 #rfx-root .rfx-add-ai .rfx-add-select[data-f="quality"]:has(option[value="poor"]:checked){
-  background:var(--rfx-amber-b)}
+  background:var(--rfx-mon-red);border-color:var(--rfx-mon-red);color:#fff;-webkit-text-fill-color:#fff}
+/* keep the open dropdown list readable (dark text) even though the closed field is white-on-colour */
+#rfx-root .rfx-add-ai .rfx-add-select[data-f="verdict"] option,
+#rfx-root .rfx-add-ai .rfx-add-select[data-f="quality"] option{color:var(--rfx-text);-webkit-text-fill-color:var(--rfx-text)}
 
 /* ---------- floating launcher ---------- */
 #rfx-launcher {
@@ -161,6 +165,9 @@
   background: var(--rfx-amber-t); border: 2px solid #fff;
 }
 #rfx-launcher.rfx-hidden { display: none; }
+/* clickable job-card title (opens the job in the same tab via Upwork's slider) */
+#rfx-root .rfx-title-link{cursor:pointer}
+#rfx-root .rfx-title-link:hover{color:var(--rfx-indigo);text-decoration:underline}
 /* left-side placement (rep toggled the panel to the bottom-left corner) */
 #rfx-launcher.rfx-left { right: auto; left: 22px; }
 
@@ -638,16 +645,16 @@ a.rfx-btn.primary:hover { color: #fff; }
   font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 6px; white-space: nowrap;
 }
 .rfx-tag-relevance .rfx-tag-ic { font-size: 11px; font-weight: 800; }
-.rfx-tag-relevance.rel { color: var(--rfx-green-t); background: var(--rfx-green-b); }
-.rfx-tag-relevance.rev { color: var(--rfx-amber-t); background: var(--rfx-amber-b); }
-.rfx-tag-relevance.irr { color: var(--rfx-red-t);   background: var(--rfx-red-b); }
+.rfx-tag-relevance.rel { color: #fff; background: var(--rfx-mon-green); }
+.rfx-tag-relevance.rev { color: #fff; background: var(--rfx-mon-orange); }
+.rfx-tag-relevance.irr { color: #fff; background: var(--rfx-mon-red); }
 .rfx-tag-relevance.muted { color: var(--rfx-text-3); background: var(--rfx-surface); font-weight: 600; }
 .rfx-tag-quality {                                              /* paired, lighter */
   font-size: 12px; font-weight: 600; padding: 4px 9px; border-radius: 6px; white-space: nowrap;
 }
-.rfx-tag-quality.good   { color: var(--rfx-green-t); background: var(--rfx-green-b); }
-.rfx-tag-quality.medium { color: var(--rfx-amber-t); background: var(--rfx-amber-b); }
-.rfx-tag-quality.poor   { color: var(--rfx-red-t);   background: var(--rfx-red-b); }
+.rfx-tag-quality.good   { color: #fff; background: var(--rfx-mon-green); }
+.rfx-tag-quality.medium { color: #fff; background: var(--rfx-mon-orange); }
+.rfx-tag-quality.poor   { color: #fff; background: var(--rfx-mon-red); }
 .rfx-tag-quality.muted  { color: var(--rfx-text-3); background: var(--rfx-surface); }
 .rfx-tag-chips {                                                /* quiet, truncates */
   font-size: 12px; font-weight: 500; color: var(--rfx-text-3);

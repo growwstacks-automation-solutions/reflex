@@ -308,6 +308,7 @@
           if (openId) { surface = "job"; rfxLastOpenId = openId; } // a job is open -> show it
         }
         render(); startMirror();
+        consumePendingAction();                  // resume an Add/Generate we navigated here for
       } else {
         render();                                // signed out -> sign-in gate (no mirror)
       }
@@ -1433,6 +1434,9 @@
       );
       const title = titleEl ? titleEl.textContent.trim().replace(/\s+/g, " ") : "(untitled job)";
       const text = (tile.textContent || "").replace(/\s+/g, " ");
+      // The job cipher (~0…) from any link in the tile — used to build the details URL fallback.
+      const linkEl = tile.querySelector("a[href*='~0']");
+      const cipher = linkEl ? ((linkEl.getAttribute("href") || "").match(/~0[0-9a-z]+/i) || [""])[0] : "";
 
       // Posted date — "Posted … ago". Selector first, then a text-pattern fallback.
       const postedEl = tile.querySelector(
@@ -1450,8 +1454,55 @@
       // Budget / contract type — same facts the real Upwork tile shows.
       const { type, budget } = parseTileBudget(text);
 
-      return { jobId, title, posted, description, type, budget };
+      return { jobId, title, posted, description, type, budget, cipher };
     });
+  }
+
+  /* Open a listing job in the SAME tab by REBUILDING Upwork's job-details slider URL and
+     navigating to it (reload). We do NOT click or touch any Upwork page element — it's purely our
+     own link + a same-tab URL change. Reactive to the rep's click; nothing is submitted. */
+  function openListingJob(jobId, cipher) {
+    if (!cipher) return;                        // no job cipher captured — nothing to open
+    location.assign(buildJobDetailsUrl(cipher));
+  }
+
+  // Build the job-details slider URL for the CURRENT listing page (works for best-matches,
+  // most-recent, and search/jobs — the base is the current path). Mirrors Upwork's own format.
+  function buildJobDetailsUrl(cipher) {
+    const base = location.pathname.replace(/\/+$/, ""); // /nx/find-work/best-matches | /nx/search/jobs
+    const modalInfo = JSON.stringify([{ navType: "slider", title: "Job Details", modalId: String(Date.now()) }]);
+    return `${location.origin}${base}/details/${cipher}?pageTitle=${encodeURIComponent("Job Details")}&_modalInfo=${encodeURIComponent(modalInfo)}`;
+  }
+
+  // The job cipher stashed on a card's clickable title (for navigating to that job).
+  function cardCipher(card) {
+    const t = card.querySelector("[data-open-job]");
+    return (t && t.getAttribute("data-cipher")) || "";
+  }
+
+  /* Cross-navigation intent. Clicking Add/Generate on a LISTING card can't act there (the tile
+     lacks the full job page), so we open that job's details page (a reload) and RESUME the action
+     once it's open. The intent is stashed in this tab's sessionStorage so it survives the reload.
+     Reflex-only — no Upwork interaction. */
+  function setPendingAction(type, jobId) {
+    try { sessionStorage.setItem("rfx_pending_action", JSON.stringify({ type, jobId })); } catch (e) { /* ignore */ }
+  }
+  function readPendingAction() {
+    try { return JSON.parse(sessionStorage.getItem("rfx_pending_action") || "null"); } catch (e) { return null; }
+  }
+  // Resume a stashed Add/Generate once its job's details page is actually open + rendered.
+  // Returns true when it consumed + acted (so callers can stop). Waits (no-op) until ready.
+  function consumePendingAction() {
+    const p = readPendingAction();
+    if (!p || !p.jobId) return false;
+    const openId = openJobNumericId();
+    if (!openId || openId !== p.jobId) return false;   // not this job's page (yet)
+    if (!readOpenJob()) return false;                  // details not rendered yet — retry on next tick
+    try { sessionStorage.removeItem("rfx_pending_action"); } catch (e) { /* ignore */ }
+    surface = "job";
+    if (p.type === "gen") { render(); startGeneration(openId, { stay: true }); }
+    else { render(); openJobAddReview(openId, ""); }
+    return true;
   }
 
   // The strip inside each sidebar card — same signals as the old tile strip, laid
@@ -1532,7 +1583,7 @@
     return `
       <div class="rfx-job-card${dim}" data-rfx-card="${esc(job.jobId)}">
         <div class="rfx-jt-titlerow">
-          <div class="rfx-job-title">${esc(job.title)}</div>
+          <div class="rfx-job-title rfx-title-link" data-open-job="${esc(job.jobId)}" data-cipher="${esc(job.cipher || "")}" role="link" tabindex="0" title="Open this job on Upwork">${esc(job.title)}</div>
           <button class="rfx-jt-copy" data-copy-title="${esc(job.title)}" title="Copy job title" aria-label="Copy job title">⧉</button>
         </div>
         ${metaRow}
@@ -1569,7 +1620,12 @@
       const open = readOpenJob();
       if (jobTab && open && open.id === jobId) openJobAddReview(jobId, title); // merged flow
       else if (open && open.id === jobId) openAddReview(jobId, title);
-      else promptOpenJobToAdd(jobId, title);
+      else {
+        // Listing card: open THIS job's details page (our own URL), then resume Add there.
+        const cipher = cardCipher(card);
+        if (cipher) { setPendingAction("add", jobId); openListingJob(jobId, cipher); }
+        else promptOpenJobToAdd(jobId, title);
+      }
     });
     // Skip the locked (disabled) Generate; a real one is wired once the job is added.
     const gen = card.querySelector("[data-card-gen]:not([disabled]), [data-card-regen]");
@@ -1583,7 +1639,12 @@
       // switches to the Job tab and kicks off generation there.
       const open = readOpenJob();
       if (open && open.id === jobId) { surface = "job"; startGeneration(jobId, { stay: true }); }
-      else promptOpenJobToGenerate(jobId, title);
+      else {
+        // Listing card: open THIS job's details page (our own URL), then resume Generate there.
+        const cipher = cardCipher(card);
+        if (cipher) { setPendingAction("gen", jobId); openListingJob(jobId, cipher); }
+        else promptOpenJobToGenerate(jobId, title);
+      }
     });
   }
 
@@ -2158,7 +2219,7 @@
     const assetsSec = rfxAssets.length ? `
       <div class="rfx-prop-sec">
         <div class="rfx-section-label">Attachments</div>
-        <div class="rfx-hint">Pick the samples relevant to this job, then download them as one zip to upload to Upwork.</div>
+        <div class="rfx-hint">Pick the samples relevant to this job, then download them to upload to Upwork.</div>
         <div class="rfx-assets" id="rfx-assets">
           ${rfxAssets.map((a, i) => `
             <div class="rfx-asset ${selectedAssets.has(i) ? "sel" : ""}" data-asset="${i}" style="background:${a.bg}" title="${esc(a.url)}">
@@ -2169,7 +2230,7 @@
         </div>
         <div class="rfx-between rfx-mt">
           <span class="rfx-meta" id="rfx-asset-count">${selectedAssets.size} selected</span>
-          <button class="rfx-btn primary sm" data-zip ${selectedAssets.size ? "" : "disabled"}><span class="rfx-dl">⬇</span> Download selected (ZIP)</button>
+          <button class="rfx-btn primary sm" data-zip ${selectedAssets.size ? "" : "disabled"}><span class="rfx-dl">⬇</span> Download selected</button>
         </div>
       </div>` : "";
 
@@ -2290,46 +2351,44 @@
     if (t.includes("svg")) return "svg";
     return "";
   }
-  async function downloadSelectedZip(btn) {
+  // Download the selected work samples as INDIVIDUAL image files (no zip). Each image is fetched
+  // via the BACKGROUND (host_permissions bypass the page's CORS that would block drive.google.com),
+  // turned into a same-origin blob, and saved with an <a download>. A short gap between saves keeps
+  // the browser from collapsing/denying rapid multi-file downloads.
+  async function downloadSelected(btn) {
     const idxs = [...selectedAssets];
     if (!idxs.length) return flash(btn, "Select at least one sample");
     const prev = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = `<span class="rfx-spin"></span> Zipping…`;
-    const enc = new TextEncoder();
-    const files = [];
+    btn.innerHTML = `<span class="rfx-spin"></span> Downloading…`;
+    // Files are named "<Job Title>-<n>.<ext>" (n = 1,2,3… across the saved images). Sanitize the
+    // title for a filename (strip chars Windows/macOS reject, collapse spaces) and cap the length.
+    const rawTitle = (readOpenJob() || {}).title || (rfxJobFacts[rfxGenJobId] || {}).title || "work-sample";
+    const base = (rawTitle.replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 60)) || "work-sample";
+    let ok = 0;
     for (const i of idxs) {
       const a = rfxAssets[i];
       if (!a) continue;
-      let data = null, name = a.name || `${a.label}.bin`;
-      // Fetch the real image via the BACKGROUND (host_permissions bypass the page's CORS,
-      // which would otherwise block drive.google.com). Prefer the viewable thumbnail URL.
-      const fetchUrl = a.src || a.url;
-      if (fetchUrl) {
-        const resp = await apiFetchAsset(fetchUrl);
-        if (resp && resp.ok && resp.base64) {
-          data = b64ToBytes(resp.base64);
-          const ext = extFromType(resp.contentType);
-          if (ext) name = `${(a.label || `work-sample-${i + 1}`).replace(/[^\w.-]+/g, "-")}.${ext}`;
-        }
-      }
-      if (!data) { // couldn't fetch the real bytes — placeholder so the zip still downloads
-        data = enc.encode(`Reflex work sample — ${a.label}\n\nCouldn't fetch ${fetchUrl || "this asset"}.\nIf this persists, the image host may need to be added to the extension's host_permissions.`);
-        name = name.replace(/\.[^.]+$/, "") + ".txt";
-      }
-      files.push({ name, data });
+      const fetchUrl = a.src || a.url; // prefer the viewable thumbnail URL
+      if (!fetchUrl) continue;
+      const resp = await apiFetchAsset(fetchUrl);
+      if (!(resp && resp.ok && resp.base64)) continue; // host not permitted / fetch failed — skip
+      const ext = extFromType(resp.contentType) || "png";
+      const name = `${base}-${ok + 1}.${ext}`; // <Job Title>-1.png, <Job Title>-2.png, …
+      const url = URL.createObjectURL(new Blob([b64ToBytes(resp.base64)], { type: resp.contentType || "image/png" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      ok++;
+      await new Promise((r) => setTimeout(r, 400)); // gap so the browser allows the next save
     }
-    const url = URL.createObjectURL(buildZip(files));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "reflex-work-samples.zip";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
     btn.disabled = false;
     btn.innerHTML = prev;
-    flash(btn, `Downloaded ${files.length} file${files.length > 1 ? "s" : ""} ✓`);
+    flash(btn, ok ? `Downloaded ${ok} image${ok > 1 ? "s" : ""} ✓` : "Couldn't fetch images — host may need permission");
   }
 
   /* ---- Surface 4: messages ----
@@ -2410,6 +2469,13 @@
     body.querySelectorAll("[data-rfx-card]").forEach((card) =>
       wireListCard(card, card.getAttribute("data-rfx-card")));
 
+    // listing/job: clicking a card title opens that job in the SAME tab (Upwork's own slider)
+    body.querySelectorAll("[data-open-job]").forEach((el) => {
+      const go = () => openListingJob(el.getAttribute("data-open-job"), el.getAttribute("data-cipher"));
+      el.addEventListener("click", go);
+      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    });
+
     // job tab: wire the open job's card (Add / Generate)
     const jc = body.querySelector("[data-rfx-jobtab]");
     if (jc) wireListCard(jc, jc.getAttribute("data-rfx-jobtab"));
@@ -2469,7 +2535,7 @@
 
     // proposal: download the selected work samples as one zip
     const zip = body.querySelector("[data-zip]");
-    if (zip) zip.addEventListener("click", () => downloadSelectedZip(zip));
+    if (zip) zip.addEventListener("click", () => downloadSelected(zip));
 
     // copy buttons -> clipboard (Reflex never writes into Upwork's fields)
     body.querySelectorAll("[data-insert]").forEach(b =>
@@ -3261,6 +3327,7 @@
       // auto-switches from the Listing to the Job tab.
       rfxMirrorTimer = setTimeout(() => {
         if (rfxAddOpen) return; // reviewing an Add — don't re-render over the review card
+        if (consumePendingAction()) return; // resume an Add/Generate we navigated here for (once ready)
         // Waiting for the rep to open a job they tried to add from the listing: when one
         // opens, auto-switch to the Job tab; until then keep the "open the job" prompt up.
         if (rfxAwaitOpenForAdd) {
@@ -3299,6 +3366,10 @@
           if (surface === "listing") surface = "job";
         } else if (!openId) {
           rfxLastOpenId = "";
+          // No job open (e.g. the details slider was closed → back on the listing). The Job tab is
+          // just an empty "open a job" prompt now, so fall back to the Listing tab — unless a
+          // generation is mid-flight. Keeps the panel useful without the rep switching tabs.
+          if (surface === "job" && rfxGenState !== "generating") surface = "listing";
         }
         // Job tab with an inline proposal up for THIS job: don't re-render over it — the rep
         // may be editing the cover letter / picking samples (same guard the apply page gets).
@@ -3329,6 +3400,6 @@
   // The apply page opens in its own browser tab — auto-open the panel straight to
   // the Proposal tab there, so the rep lands on exactly what they need. Same on the
   // post-submit success page, so the "save to Reflex" confirm card is right there.
-  if (isApplyPage() || shouldShowSubmitConfirm()) openPanel();
+  if (isApplyPage() || shouldShowSubmitConfirm() || readPendingAction()) openPanel();
 
 })();
