@@ -141,6 +141,12 @@
     tokens: null,
     error: "",
   };
+  // The conversation we've already auto-synced this session (dedupes the on-open / on-switch
+  // sync so it fires once per thread, never on a timer).
+  let rfxMsgAutoSyncedRoom = "";
+  // True while the rep is on Upwork's Messages page — gates the one-time "default to Messages tab"
+  // so it fires on arrival, not on every DOM tick (manual tab switches then stick).
+  let rfxWasMessagesPage = false;
 
   // Promise wrapper around the background message channel (content-script side). Degrades a
   // closed/asleep port to { error } instead of an unhandled lastError.
@@ -161,6 +167,28 @@
     const href = location.href;
     const m = href.match(/\/rooms\/([^/?#]+)/) || href.match(/\/messages\/[^/?#]+\/([0-9a-fA-F]{8,})/);
     return m ? decodeURIComponent(m[1]) : "";
+  }
+
+  // True when the rep is on Upwork's Messages surface (inbox or a specific conversation).
+  function isMessagesPage() { return /\/messages(\/|$)/.test(location.pathname); }
+
+  // Best-effort read of the OTHER party's name from the open conversation header — read-only and
+  // reactive (it's already on the rep's screen). Upwork's selectors drift, so try a few stable
+  // anchors, then fall back to the document title. Returns "" when nothing usable is found.
+  function readMessagesClientName() {
+    const sels = [
+      "#room-header-title",                                  // Upwork's conversation title <h4>
+      "[data-test='room-title']",
+      "[data-context='room-header'][data-role='title']",
+      "[data-test='ActiveRoomHeader'] h2, [data-test='ActiveRoomHeader'] h3",
+      ".air3-chat-header h2, .air3-chat-header h3",
+    ];
+    for (const s of sels) {
+      const el = document.querySelector(s);
+      const t = el && (el.textContent || "").replace(/\s+/g, " ").trim();
+      if (t && t.length <= 80 && !/^messages?$/i.test(t)) return t;
+    }
+    return "";
   }
 
   // ISO -> short local time for the "Last synced" line.
@@ -296,7 +324,10 @@
     // from the background (chrome.storage.local) here.
     refreshAuth(() => {
       if (rfxAuth && rfxAuth.token) {
-        if (isApplyPage()) {
+        if (isMessagesPage()) {
+          surface = "messages";                 // on Upwork Messages -> default to the Messages tab
+          rfxWasMessagesPage = true;            // already defaulted — don't re-force on mirror ticks
+        } else if (isApplyPage()) {
           surface = "job";                      // apply page -> Job tab (Proposal tab merged in)
           rfxLastOpenId = openJobNumericId();
           captureApplyContext();                // remember job + connects for the post-submit link
@@ -308,6 +339,7 @@
           if (openId) { surface = "job"; rfxLastOpenId = openId; } // a job is open -> show it
         }
         render(); startMirror();
+        if (isMessagesPage()) autoSyncMessages(); // sync the open thread on open (once)
         consumePendingAction();                  // resume an Add/Generate we navigated here for
       } else {
         render();                                // signed out -> sign-in gate (no mirror)
@@ -2402,26 +2434,27 @@
     }
 
     const busy = rfxMsg.state === "syncing" || rfxMsg.state === "suggesting";
-    const syncedLine = rfxMsg.syncedAt
-      ? `Last synced: ${esc(fmtSynced(rfxMsg.syncedAt))}`
-      : "Not synced yet";
+    const clientName = readMessagesClientName();
+    // The thread syncs automatically on open / conversation change (no Sync button). Show the
+    // job title + client name; while the first sync runs, a light "syncing" line stands in for
+    // the not-yet-known job title.
     const titleLine = rfxMsg.jobTitle
-      ? `<div class="rfx-jt-title">${esc(rfxMsg.jobTitle)}</div>`
-      : (rfxMsg.linked === false && rfxMsg.state !== "idle"
-          ? `<div class="rfx-meta" style="color:var(--rfx-text-2)">Not matched to a Reflex job — replying from the conversation alone.</div>`
-          : "");
+      ? `<div class="rfx-msg-job">${esc(rfxMsg.jobTitle)}</div>`
+      : (rfxMsg.state === "syncing"
+          ? `<div class="rfx-msg-syncing"><span class="rfx-spin dark"></span> Syncing conversation…</div>`
+          : (rfxMsg.linked === false
+              ? `<div class="rfx-meta" style="color:var(--rfx-text-2)">Not matched to a Reflex job — replying from the conversation alone.</div>`
+              : ""));
+    const clientLine = clientName ? `<div class="rfx-msg-client">${esc(clientName)}</div>` : "";
 
     return `
       <div class="rfx-context-note">Reading a client thread? ${SYSTEM_NAME} knows the job, your proposal, and the whole conversation.</div>
 
       <div class="rfx-card">
         ${titleLine}
-        <div class="rfx-between">
-          <span class="rfx-cost">${syncedLine}</span>
-          <button class="rfx-btn ghost sm" data-sync ${busy ? "disabled" : ""}>${rfxMsg.state === "syncing" ? `<span class="rfx-spin"></span> Syncing…` : "↻ Sync messages"}</button>
-        </div>
+        ${clientLine}
         <button class="rfx-btn primary full rfx-mt" data-suggest ${busy ? "disabled" : ""}>
-          ${rfxMsg.state === "suggesting" ? `<span class="rfx-spin"></span> Generating…` : `<span class="rfx-spark">✦</span> Suggested reply`}
+          ${rfxMsg.state === "suggesting" ? `<span class="rfx-spin"></span> Generating…` : `<span class="rfx-spark">✦</span> Generate a reply`}
         </button>
         ${rfxMsg.error ? `<div class="rfx-meta rfx-mt" style="color:var(--rfx-danger,#c0392b)">${esc(rfxMsg.error)}</div>` : ""}
       </div>
@@ -2573,6 +2606,17 @@
       btn.addEventListener("click", runSuggest));
 
     // messages: Copy reply is handled by the generic [data-insert] wiring above (→ #rfx-reply).
+  }
+
+  // Auto-sync the open conversation ONCE (on messages-page open / conversation switch). Deduped
+  // per room and skipped while a sync/suggest is already running — never a timer, only reactive to
+  // the rep's own navigation. Calls our Worker (SYNC_MESSAGES), never Upwork directly.
+  function autoSyncMessages() {
+    const room = getRoomId();
+    if (!room || rfxMsgAutoSyncedRoom === room) return;
+    if (rfxMsg.state === "syncing" || rfxMsg.state === "suggesting") return;
+    rfxMsgAutoSyncedRoom = room;
+    runSync();
   }
 
   // Pull the open room's messages into Reflex, then refresh the Messages tab.
@@ -3328,6 +3372,29 @@
       rfxMirrorTimer = setTimeout(() => {
         if (rfxAddOpen) return; // reviewing an Add — don't re-render over the review card
         if (consumePendingAction()) return; // resume an Add/Generate we navigated here for (once ready)
+        // Messages surface: on Upwork's Messages, DEFAULT the panel to the Messages tab (once, on
+        // arrival — later manual tab switches stick), and auto-sync the open thread. A new
+        // conversation (room change) resets the card and re-syncs. We render only on that default
+        // switch or a conversation change — NOT on every thread DOM mutation — so the rep's
+        // in-progress reply edits aren't wiped.
+        if (isMessagesPage()) {
+          const room = getRoomId();
+          if (!rfxWasMessagesPage) {           // just arrived on Messages -> default to that tab
+            rfxWasMessagesPage = true;
+            if (surface !== "messages") { surface = "messages"; render(); }
+          }
+          const newConvo = room && room !== rfxMsgAutoSyncedRoom
+            && rfxMsg.state !== "syncing" && rfxMsg.state !== "suggesting";
+          if (newConvo) {
+            rfxMsg.room = room;
+            Object.assign(rfxMsg, { state: "idle", jobTitle: "", summary: "", reply: "",
+              cost: null, tokens: null, linked: null, syncedAt: null, error: "" });
+            if (surface === "messages") render();
+            autoSyncMessages();          // sets rfxMsgAutoSyncedRoom + runs SYNC for the new thread
+          }
+          return;
+        }
+        rfxWasMessagesPage = false;            // left Messages -> re-arm the default for next visit
         // Waiting for the rep to open a job they tried to add from the listing: when one
         // opens, auto-switch to the Job tab; until then keep the "open the job" prompt up.
         if (rfxAwaitOpenForAdd) {
