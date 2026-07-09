@@ -80,6 +80,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         .then((data) => sendResponse(data))
         .catch((e) => sendResponse({ error: errMsg(e) }));
       return true;
+    case "OPEN_TAB":
+      // Open a URL in a NEW tab. Done here (not window.open in the content script) because a
+      // window.open after an async gap is popup-blocked; chrome.tabs.create is not. Navigation only.
+      openTab(msg.url)
+        .then((data) => sendResponse(data))
+        .catch((e) => sendResponse({ error: errMsg(e) }));
+      return true;
     default:
       return false;
   }
@@ -87,6 +94,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 function errMsg(e) {
   return String(e && e.message ? e.message : e);
+}
+
+// Open a URL in a new active tab. chrome.tabs.create doesn't need the "tabs" permission.
+async function openTab(url) {
+  if (!url) return { error: "No URL" };
+  const tab = await chrome.tabs.create({ url, active: true });
+  return { ok: true, tabId: tab && tab.id };
 }
 
 // --- auth ----------------------------------------------------------------

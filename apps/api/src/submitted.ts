@@ -61,6 +61,21 @@ export async function jobSubmitted(req: Request, env: Env): Promise<Response> {
       where id = ${jid}
     `;
 
+    // Assign the job to whoever submitted it. assign_job() releases any current live owner and
+    // installs the submitter atomically, and mirrors the name into jobs.picked_by_name (what the
+    // board + extension show as "Assigned · <rep>"). Skip if they already own it (avoids history
+    // churn). Non-fatal — a reassign failure must not fail the submit recording.
+    try {
+      const owner = (await sql`
+        select user_id from job_assignments where job_id = ${jid} and released_at is null limit 1
+      `) as Array<{ user_id: string }>;
+      if (!owner[0] || owner[0].user_id !== claims.sub) {
+        await sql`select assign_job(${jid}::uuid, ${claims.sub}::uuid)`;
+      }
+    } catch (err) {
+      console.warn("[jobSubmitted] reassign to submitter failed:", err instanceof Error ? err.message : String(err));
+    }
+
     // Normalized proposals row: flip the draft to submitted (only if a draft exists and is unsent).
     await sql`update proposals set submitted_at = now(), updated_at = now() where job_id = ${jid} and submitted_at is null`;
 
