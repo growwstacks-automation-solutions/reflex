@@ -369,6 +369,11 @@ a.rfx-btn.primary:hover { color: #fff; }
 }
 .rfx-asset.sel .rfx-check { display: flex; }
 
+/* messages tab — auto-synced thread header (job title + client name, no Sync button) */
+#rfx-root .rfx-msg-job { font-size: 14px; font-weight: 600; color: var(--rfx-text); line-height: 1.35; }
+#rfx-root .rfx-msg-client { font-size: 12.5px; font-weight: 500; color: var(--rfx-text-2); margin-top: 2px; }
+#rfx-root .rfx-msg-syncing { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--rfx-text-2); }
+
 /* conversation card */
 .rfx-thread { padding: 12px; }
 .rfx-thread-head {

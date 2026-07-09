@@ -160,8 +160,20 @@ function parseSuggest(raw: string): SuggestResult {
   }
   return {
     summary: typeof obj.summary === "string" ? obj.summary : "",
-    reply: typeof obj.reply === "string" ? obj.reply : "",
+    reply: tidyReply(typeof obj.reply === "string" ? obj.reply : ""),
   };
+}
+
+/** Normalize the reply's whitespace so it pastes cleanly: real line breaks, blank line between
+ *  paragraphs, no trailing spaces, collapse 3+ blank lines to one. Handles a model that emitted a
+ *  literal "\n" sequence instead of an actual newline. */
+function tidyReply(s: string): string {
+  return s
+    .replace(/\r\n/g, "\n")
+    .replace(/\\n/g, "\n")        // literal backslash-n -> real newline (belt-and-suspenders)
+    .replace(/[ \t]+\n/g, "\n")   // strip trailing spaces on each line
+    .replace(/\n{3,}/g, "\n\n")   // at most one blank line between blocks
+    .trim();
 }
 
 function buildSuggestPrompt(job: JobRow | null, thread: Array<{ sender: string; body: string }>): {
@@ -174,8 +186,15 @@ function buildSuggestPrompt(job: JobRow | null, thread: Array<{ sender: string; 
     "next reply: professional, warm, specific, and concise — it answers the client's latest questions " +
     "directly and moves the conversation toward the next step (a call, a quote, scope). Never invent " +
     "facts, prices, or commitments not supported by the proposal or thread; if a number is unknown, ask " +
-    'for it rather than guessing. Respond ONLY as minified JSON: {"summary": "...", "reply": "..."} where ' +
-    "summary is a 2-3 line recap of where the conversation stands and reply is the message the freelancer can copy and send.";
+    "for it rather than guessing.\n\n" +
+    "FORMAT THE REPLY as a ready-to-send message, well spaced and easy to read:\n" +
+    "- Open with a short greeting line (use the client's first name if it's clear from the thread, else \"Hi there\").\n" +
+    "- Then a blank line, then 1-3 short paragraphs (1-3 sentences each), each separated by a blank line.\n" +
+    "- If listing steps or options, put each on its own line starting with \"- \".\n" +
+    "- Close with a brief sign-off line (e.g. \"Best,\" then the next line blank — do NOT invent a name).\n" +
+    "- Plain text only: no markdown, no bold, no emojis. Use real line breaks — \\n between lines and \\n\\n between paragraphs.\n\n" +
+    'Respond ONLY as minified JSON: {"summary": "...", "reply": "..."} where summary is a 2-3 line recap of ' +
+    "where the conversation stands and reply is the message the freelancer can copy and send (with the \\n / \\n\\n line breaks preserved in the JSON string).";
 
   const jobBlock = job
     ? `JOB TITLE: ${job.title ?? ""}\nJOB DESCRIPTION: ${job.description ?? ""}\nBUDGET: ${job.budget_text ?? ""}\n\nOUR SUBMITTED PROPOSAL:\n${job.cover_letter ?? "(no proposal on file)"}`
