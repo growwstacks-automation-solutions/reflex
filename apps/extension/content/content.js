@@ -1703,8 +1703,15 @@
         else promptOpenJobToAdd(jobId, title);
       }
     });
+    // "Proposal ready" (listing only): behave exactly like clicking the job title — just open the
+    // job's Upwork page (the ready proposal then shows inline on the Job tab). No regenerate.
+    const regen = card.querySelector("[data-card-regen]");
+    if (regen) regen.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      openListingJob(jobId, cardCipher(card)); // same as clicking the job title
+    });
     // Skip the locked (disabled) Generate; a real one is wired once the job is added.
-    const gen = card.querySelector("[data-card-gen]:not([disabled]), [data-card-regen]");
+    const gen = card.querySelector("[data-card-gen]:not([disabled])");
     if (gen) gen.addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
       const titleEl = card.querySelector(".rfx-job-title");
