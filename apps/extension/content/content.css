@@ -196,24 +196,6 @@
 #rfx-root.rfx-left { right: auto; left: 12px; transform: translateX(calc(-100% - 16px)); }
 #rfx-root.rfx-left.rfx-open { transform: translateX(0); }
 
-/* drag-to-resize handle — sits on the panel's INNER edge (left when docked right, right when
-   docked left). Thin hit area; a subtle grip appears on hover and turns indigo while dragging. */
-#rfx-root .rfx-resize {
-  position: absolute; top: 0; bottom: 0; left: 0; width: 8px;
-  cursor: ew-resize; z-index: 6; background: transparent;
-}
-#rfx-root.rfx-left .rfx-resize { left: auto; right: 0; }
-#rfx-root .rfx-resize::after {
-  content: ""; position: absolute; top: 50%; left: 2px; transform: translateY(-50%);
-  width: 3px; height: 40px; border-radius: 3px;
-  background: var(--rfx-border); opacity: 0; transition: opacity .15s ease, background .15s ease;
-}
-#rfx-root.rfx-left .rfx-resize::after { left: auto; right: 2px; }
-#rfx-root .rfx-resize:hover::after { opacity: 1; }
-/* while dragging: freeze the slide transition, stop text selection, keep the grip lit */
-#rfx-root.rfx-resizing { transition: none; user-select: none; }
-#rfx-root.rfx-resizing .rfx-resize::after { opacity: 1; background: var(--rfx-indigo); }
-
 /* header */
 .rfx-header {
   display: flex; align-items: center; gap: 10px;
@@ -231,14 +213,8 @@
 .rfx-id .rfx-name { font-size: 14px; font-weight: 600; }
 .rfx-id .rfx-user { font-size: 11.5px; color: var(--rfx-text-3); }
 .rfx-id .rfx-user b { color: var(--rfx-green-t); font-weight: 600; }
-.rfx-refresh {
-  margin-left: auto; cursor: pointer; color: var(--rfx-text-3);
-  width: 28px; height: 28px; border-radius: 7px; border: none; background: transparent;
-  font-size: 16px; display: flex; align-items: center; justify-content: center;
-}
-.rfx-refresh:hover { background: var(--rfx-surface-2); color: var(--rfx-text); }
 .rfx-move {
-  margin-left: 2px; cursor: pointer; color: var(--rfx-text-3);
+  margin-left: auto; cursor: pointer; color: var(--rfx-text-3);
   width: 28px; height: 28px; border-radius: 7px; border: none; background: transparent;
   font-size: 15px; display: flex; align-items: center; justify-content: center;
 }
