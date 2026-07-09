@@ -127,6 +127,9 @@
   let rfxAutoConfirmedFor = ""; // proposalId we've already auto-confirmed (one-shot dedupe)
   let rfxAutoConfirmTimer = null; // pending auto-confirm timer, so re-renders don't stack timers
   const RFX_AUTO_CONFIRM_MS = 2000; // auto-click "Confirm & Save" this long after the card shows
+  let rfxAutoAddTimer = null;   // pending auto-"Confirm add" timer (fires after relevance is checked)
+  const RFX_AUTO_ADD_MS = 3000; // auto-click "Confirm add" this long after the relevance check
+  const rfxApplyRedirected = new Set(); // jobIds we've already jumped to the apply page for (first generate only)
 
   // Messages tab (real): sync + suggested reply for the open Upwork conversation.
   let rfxMsg = {
@@ -193,6 +196,7 @@
         <div class="rfx-name">${SYSTEM_NAME}</div>
         <div class="rfx-user">Sign in to sync your jobs</div>
       </div>
+      <button class="rfx-refresh" title="Refresh">⟳</button>
       <button class="rfx-move" title="Move panel to the other side">⇄</button>
       <button class="rfx-x" title="Close">×</button>
     </div>
@@ -210,6 +214,13 @@
   // Closing the panel / switching tabs leaves the Add card — if it was classified but not yet
   // saved, offer to save it first (see confirmLeaveAddCard).
   root.querySelector(".rfx-x").addEventListener("click", () => confirmLeaveAddCard(closePanel));
+
+  // Refresh: re-read auth + the page and re-render, dropping cached job statuses so they re-check.
+  // Read-only — nothing on Upwork is touched.
+  root.querySelector(".rfx-refresh").addEventListener("click", () => {
+    try { for (const k in rfxJobCache) delete rfxJobCache[k]; } catch (e) { /* ignore */ }
+    refreshAuth(() => render());
+  });
 
   // ---------- panel side (bottom-right default, toggle to bottom-left) ----------
   // Both the launcher and the panel share one side. The choice persists per browser
@@ -444,6 +455,17 @@
     }
     render();
     if (stay) scrollToJobProposal();
+    // First successful generate for THIS job → open the Upwork apply page in a NEW TAB (once).
+    // The draft is persisted during /generate, so it restores in the new tab. New tab is opened via
+    // the background (chrome.tabs.create) — window.open would be popup-blocked after the async gap.
+    // Regenerate never re-opens (jobId already in the set); skipped if we're already on the apply page.
+    if (rfxGenState === "ready" && rfxGenJobId && !rfxApplyRedirected.has(rfxGenJobId) && !isApplyPage()) {
+      rfxApplyRedirected.add(rfxGenJobId);
+      const cipher = openJobCipherId() || (open && open.cipher) || "";
+      if (cipher) {
+        try { chrome.runtime.sendMessage({ type: "OPEN_TAB", url: applyUrlFor(cipher) }); } catch (e) { /* ignore */ }
+      }
+    }
   }
 
   // Ask the background worker to POST /generate. Resolves to { result } or { error }.
@@ -1229,6 +1251,21 @@
       const inr = typeof r.cost_inr === "number" ? r.cost_inr.toFixed(2) : r.cost_inr;
       cost.textContent = `✦ ${r.tokens} tokens · ₹${inr} · cache ${r.cache_status} · model said ${r.relevance_raw}/${r.quality_raw}`;
     }
+    scheduleAutoAdd(); // relevance done → auto-confirm the add after RFX_AUTO_ADD_MS (rep can click sooner / Cancel)
+  }
+
+  // Auto-save the Add card once relevance is checked: fires "Confirm add" on its own after a short
+  // delay. Only the button click is automated — the classify + add flow/feature is unchanged. One-
+  // shot (a re-check reschedules); no-op if the card was left or already saved.
+  function scheduleAutoAdd() {
+    if (rfxAutoAddTimer) clearTimeout(rfxAutoAddTimer);
+    rfxAutoAddTimer = setTimeout(() => {
+      rfxAutoAddTimer = null;
+      if (!rfxAddOpen || rfxAddSaved || !rfxAddClass) return; // card left / already saved / not classified
+      const b = root.querySelector("#rfx-body");
+      const confirm = b && b.querySelector("[data-add-confirm]:not([disabled])");
+      if (confirm) submitAdd(confirm);
+    }, RFX_AUTO_ADD_MS);
   }
 
   async function submitAdd(btn) {
@@ -1563,6 +1600,13 @@
       action = jobTab
         ? `<button class="rfx-tag-gen" disabled title="Use Regenerate in the cover letter below"><span class="rfx-spark">✦</span> Proposal generated</button>`
         : `<button class="rfx-tag-gen quiet" data-card-regen>↻ Proposal ready</button>`;
+    } else if (isApplyPage()) {
+      // On the apply page (no job details / client reviews), don't generate here — send the rep
+      // back to the job post (built from the cipher in THIS page's URL) to generate with full context.
+      const cipher = openJobCipherId();
+      action = cipher
+        ? `<a class="rfx-tag-gen" style="text-decoration:none" href="https://www.upwork.com/jobs/${esc(cipher)}" rel="noopener">← Back to job post</a>`
+        : `<button class="rfx-tag-gen" data-card-gen><span class="rfx-spark">✦</span> Generate</button>`;
     } else {
       action = `<button class="rfx-tag-gen" data-card-gen><span class="rfx-spark">✦</span> Generate</button>`;
     }
@@ -1733,6 +1777,10 @@
     // Once Generate runs for THIS job, the proposal renders inline below the card
     // (the Job + Proposal flow is one scroll). Idle -> nothing here; the card's button is the CTA.
     const showProp = rfxGenState !== "idle" && rfxGenJobId && rfxGenJobId === open.id;
+    // "Apply on Upwork" is hidden until a proposal exists — a live ready draft for this job, or
+    // the DB says one was generated/submitted.
+    const hasProposal = (rfxGenState === "ready" && rfxGenJobId === open.id)
+      || data.actioned === "generated" || data.actioned === "submitted";
     const propSection = showProp
       ? `<div id="rfx-job-proposal" class="rfx-job-proposal">
           <div class="rfx-prop-divider"><span class="rfx-spark">✦</span> Proposal</div>
@@ -1759,7 +1807,7 @@
         ${meta ? `<div class="rfx-jc-stats">${meta}</div>` : ""}
         ${stats ? `<div class="rfx-jc-stats">${stats}</div>` : ""}
         ${dDesc ? `<div class="rfx-jobdesc">${esc(dDesc)}</div>` : ""}
-        ${open.cipher && !isApplyPage() ? `<a class="rfx-btn primary full rfx-mt rfx-apply-link" href="${esc(applyUrlFor(open.cipher))}" target="_blank" rel="noopener">Apply on Upwork →</a>` : ""}
+        ${open.cipher && !isApplyPage() && hasProposal ? `<a class="rfx-btn primary full rfx-mt rfx-apply-link" href="${esc(applyUrlFor(open.cipher))}" target="_blank" rel="noopener">Apply on Upwork →</a>` : ""}
       </div>
       ${propSection}
     `;
@@ -1778,7 +1826,11 @@
     const saving = rfxSubmitState[pid] === "saving";
     const repName = (rfxAuth && rfxAuth.user && (rfxAuth.user.full_name || rfxAuth.user.email)) || "you";
     const jobTitle = (pending && pending.title) || "";
-    const connects = pending && pending.connects != null ? pending.connects : null;
+    let connects = pending && pending.connects != null ? pending.connects : null;
+    if (connects == null) { // pending is cleared after save — reuse the connects we stashed at save time
+      const c = sessionStorage.getItem("rfx_saved_connects_" + pid);
+      if (c != null && c !== "") connects = Number(c);
+    }
 
     const facts =
       (jobTitle ? `<div class="rfx-jt-meta"><span class="rfx-jt-budget">${esc(jobTitle)}</span></div>` : "") +
@@ -1832,7 +1884,11 @@
     });
     if (resp && resp.ok && !resp.error) {
       rfxSubmitState[pid] = "saved";
-      try { sessionStorage.setItem("rfx_saved_" + pid, "1"); sessionStorage.removeItem("rfx_pending_submit"); } catch (e) { /* ignore */ }
+      try {
+        sessionStorage.setItem("rfx_saved_" + pid, "1");
+        if (pending.connects != null) sessionStorage.setItem("rfx_saved_connects_" + pid, String(pending.connects));
+        sessionStorage.removeItem("rfx_pending_submit");
+      } catch (e) { /* ignore */ }
       // Drop any cached status for this job so the next check reflects "submitted".
       if (rfxJobCache[pending.job_id]) delete rfxJobCache[pending.job_id];
       render();
@@ -2255,12 +2311,11 @@
         <div class="rfx-section-label">Cover letter</div>
         <textarea class="rfx-edit" id="rfx-cover">${esc(coverText)}</textarea>
         <div class="rfx-between rfx-mt">
-          <span class="rfx-cost"></span>
+          <button class="rfx-btn ghost sm" data-copy="#rfx-cover">⧉ Copy</button>
           ${rfxGenSubmitted
             ? `<span class="rfx-tag-own mine" title="This proposal was already submitted on Upwork — regenerate is locked.">Submitted ✓</span>`
             : `<button class="rfx-btn ghost sm" data-gen-proposal>↻ Regenerate</button>`}
         </div>
-        <button class="rfx-btn primary full rfx-mt" data-copy="#rfx-cover">Copy cover letter</button>
       </div>
 
       ${screeningSecs}
@@ -3400,6 +3455,7 @@
   // The apply page opens in its own browser tab — auto-open the panel straight to
   // the Proposal tab there, so the rep lands on exactly what they need. Same on the
   // post-submit success page, so the "save to Reflex" confirm card is right there.
-  if (isApplyPage() || shouldShowSubmitConfirm() || readPendingAction()) openPanel();
+  // Default to OPEN on every page load — the panel starts expanded, not as the launcher bubble.
+  openPanel();
 
 })();
