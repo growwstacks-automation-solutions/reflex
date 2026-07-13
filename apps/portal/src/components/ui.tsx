@@ -8,13 +8,15 @@ import type { Job, Person } from "@/lib/types";
 export type Quality = "good" | "medium" | "watch" | "poor";
 
 export const QUALITY: Record<Quality, { label: string; bg: string; on: string }> = {
-  good: { label: "Good fit", bg: "var(--status-good)", on: "var(--status-good-on)" },
-  medium: { label: "Medium fit", bg: "var(--status-warn)", on: "var(--status-warn-on)" },
-  watch: { label: "Watch", bg: "var(--status-info)", on: "var(--status-info-on)" },
-  poor: { label: "Poor fit", bg: "var(--status-bad)", on: "var(--status-bad-on)" },
+  good: { label: "Good fit", bg: "var(--mon-green)", on: "#FFFFFF" },
+  medium: { label: "Medium fit", bg: "var(--mon-orange)", on: "#FFFFFF" },
+  watch: { label: "Watch", bg: "var(--mon-blue)", on: "#FFFFFF" },
+  poor: { label: "Poor fit", bg: "var(--mon-red)", on: "#FFFFFF" },
 };
 
 export function QualityChip({ quality, dense }: { quality: Quality; dense?: boolean }) {
+  // Extension classifier only emits good/medium/poor — legacy "watch" rows show no chip.
+  if (quality === "watch") return null;
   const q = QUALITY[quality] || QUALITY.medium;
   return (
     <span

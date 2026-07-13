@@ -50,6 +50,10 @@
   --status-bad:  #E23D4B;  --status-bad-on:  #FFFFFF;   /* punchy red   */
   --status-info: #2F6BE0;  --status-info-on: #FFFFFF;
 
+  /* ── MONDAY.com board palette — 1:1 with the extension's relevance/quality tags
+     (green = relevant/good, orange = needs-review/medium, red = not-a-fit/poor). ── */
+  --mon-green: #00C875;  --mon-orange: #FDAB3D;  --mon-red: #E2445C;  --mon-blue: #579BFC;
+
   /* ── TAXONOMY chips: locked hues, crisper + more saturated ── */
   --tax-tool-text:    #4634CA;  --tax-tool-fill:    #ECEAFE;  /* Tool — purple */
   --tax-usecase-text: #0B7D5D;  --tax-usecase-fill: #DCF5EC;  /* Use case — teal */

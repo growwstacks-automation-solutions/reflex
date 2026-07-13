@@ -1,11 +1,10 @@
 /* Reflex portal v4 — Job board: KPI strip, filters, true table listing. */
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { MouseEvent, ReactNode, CSSProperties } from "react";
 import { RXIcons } from "@/components/icons";
 import { Button, TaxonomyChip, RelevanceBadge } from "@/components/ds";
-import { QualityChip, Ownership } from "@/components/ui";
-import { PageHeader } from "@/components/Shell";
+import { QualityChip, Avatar } from "@/components/ui";
 import { BellButton } from "@/components/bell";
 import type { Job, ActionLink } from "@/lib/types";
 import type { Rep } from "@/lib/api";
@@ -15,22 +14,64 @@ type SortKey = "posted" | "created" | "budget" | "connects";
 
 /* ── Fixed column widths — every row and the header share these exactly ── */
 const COL = {
-  status:  "164px",   /* relevance + quality badges */
-  budget:  "110px",   /* budget amount */
-  connects: "88px",   /* connects count */
-  posted:   "132px",  /* posted on Upwork (exact date + time) */
-  created:  "132px",  /* created in our DB (exact date + time) */
-  action:  "148px",   /* CTA button */
+  created:  "128px",  /* created in our DB (exact date + time) — FIRST column */
+  status:   "172px",  /* proposal pipeline status — wide enough for "Proposal generated" */
+  budget:   "108px",  /* budget amount */
+  connects:  "84px",  /* connects count */
+  assignee: "156px",  /* who the job is assigned to */
 } as const;
 
-/* Shared template so the header, every row, and the skeleton stay column-aligned. */
-const GRID = `${COL.status} 1fr ${COL.budget} ${COL.connects} ${COL.posted} ${COL.created} ${COL.action}`;
+/* Shared template so the header, every row, and the skeleton stay column-aligned.
+   Relevance + quality + the posted date live INSIDE the title/desc cell (Upwork-card style).
+   Connects only appears in the Submitted view (connects spent) — hidden everywhere else.
+   Order: Created · Title · Budget · [Connects] · Assignee · Status (Status last). */
+const gridCols = (showConnects: boolean): string =>
+  showConnects
+    ? `${COL.created} 1fr ${COL.budget} ${COL.connects} ${COL.assignee} ${COL.status}`
+    : `${COL.created} 1fr ${COL.budget} ${COL.assignee} ${COL.status}`;
 
 const TABS: { id: TabId; label: string }[] = [
-  { id: "mine", label: "Assigned to me" },
-  { id: "available", label: "Available" },
   { id: "all", label: "All" },
+  { id: "mine", label: "Assigned to me" },
 ];
+
+/* ── Proposal pipeline status ──
+   Derived from the DB's proposal_status (New Job / Submitted / In Contact), which the
+   adapter already folds into job.actionState. Soft fill+text pills so they stay visually
+   distinct from the SOLID Monday relevance/quality badges in the next column. */
+const PROPOSAL_STATUS: Record<Job["actionState"], { label: string; fill: string; text: string }> = {
+  "not-actioned": { label: "Pending",             fill: "var(--surface-2)",     text: "var(--text-secondary)" },
+  generated:      { label: "Proposal generated",  fill: "var(--review-fill)",   text: "var(--review-text)" },
+  submitted:      { label: "Submitted",           fill: "var(--relevant-fill)", text: "var(--relevant-text)" },
+  conversation:   { label: "In contact",          fill: "var(--info-fill)",     text: "var(--info-text)" },
+};
+
+function StatusBadge({ state }: { state: Job["actionState"] }): JSX.Element {
+  const s = PROPOSAL_STATUS[state] || PROPOSAL_STATUS["not-actioned"];
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      fontSize: 11.5, fontWeight: 700, letterSpacing: "0.01em", lineHeight: 1,
+      color: s.text, background: s.fill,
+      padding: "5px 10px", borderRadius: "var(--radius-pill)", whiteSpace: "nowrap",
+    }}>
+      {state === "submitted" && <RXIcons.check size={12} />}
+      {state === "conversation" && <RXIcons.chat size={12} />}
+      {s.label}
+    </span>
+  );
+}
+
+/* ── Date cell — clean two-line stack (date over time), sans + tabular figures ── */
+function DateCell({ value, align = "flex-end" }: { value: string; align?: "flex-start" | "flex-end" }): JSX.Element {
+  const [date, time] = value.split(", ");
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: align, gap: 1, lineHeight: 1.3 }}>
+      <span style={{ fontFamily: "var(--font-ui)", fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{date}</span>
+      {time && <span style={{ fontFamily: "var(--font-ui)", fontSize: 11.5, color: "var(--text-tertiary)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{time}</span>}
+    </div>
+  );
+}
 
 /* ── Segmented control ── */
 export function Segmented<T extends string>({
@@ -63,6 +104,112 @@ export function Segmented<T extends string>({
   );
 }
 
+/* ── Date-range control ── drives the whole board (rows + KPIs) by the Created date.
+   Presets (Today / This week / This month / Last week / Last month) + a custom range. */
+function fmtDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function prettyDate(iso: string): string {
+  const d = new Date(iso + "T00:00:00");
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+function DateRangeControl({ from, to, onChange }: {
+  from: string | null; to: string | null; onChange: (from: string | null, to: string | null) => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [cf, setCf] = useState(from || "");
+  const [ct, setCt] = useState(to || "");
+  const ref = useRef<HTMLDivElement>(null);
+  const apply = (f: string | null, t: string | null) => { onChange(f, t); setOpen(false); };
+
+  // Close on click outside (not on hover-out). Only listens while open.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: globalThis.MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const today = new Date();
+  const monOf = (d: Date) => { const x = new Date(d); const day = (x.getDay() + 6) % 7; x.setDate(x.getDate() - day); return x; };
+  const presets: { label: string; run: () => void }[] = [
+    { label: "All time",   run: () => apply(null, null) },
+    { label: "Today",      run: () => apply(fmtDate(today), fmtDate(today)) },
+    { label: "This week",  run: () => apply(fmtDate(monOf(today)), fmtDate(today)) },
+    { label: "This month", run: () => apply(fmtDate(new Date(today.getFullYear(), today.getMonth(), 1)), fmtDate(today)) },
+    { label: "Last week",  run: () => { const mon = monOf(today); mon.setDate(mon.getDate() - 7); const sun = new Date(mon); sun.setDate(mon.getDate() + 6); apply(fmtDate(mon), fmtDate(sun)); } },
+    { label: "Last month", run: () => apply(fmtDate(new Date(today.getFullYear(), today.getMonth() - 1, 1)), fmtDate(new Date(today.getFullYear(), today.getMonth(), 0))) },
+  ];
+
+  const label = from && to ? (from === to ? prettyDate(from) : `${prettyDate(from)} → ${prettyDate(to)}`)
+    : from ? `From ${prettyDate(from)}` : to ? `Until ${prettyDate(to)}` : "All time";
+  const active = !!(from || to);
+
+  const inputSt: CSSProperties = {
+    font: "inherit", fontSize: 12.5, padding: "5px 8px", borderRadius: "var(--radius-button)",
+    border: "1px solid var(--border)", background: "var(--surface)", color: "var(--text-primary)",
+  };
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen(o => !o)} style={{
+        display: "inline-flex", alignItems: "center", gap: 7, cursor: "pointer",
+        padding: "7px 12px", borderRadius: "var(--radius-button)", font: "inherit",
+        border: active ? "1px solid var(--indigo-200)" : "1px solid var(--border)",
+        background: active ? "var(--accent-tint)" : "var(--surface)",
+        color: active ? "var(--accent-on-tint)" : "var(--text-primary)",
+        fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
+      }}>
+        <CalendarIcon />
+        {label}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true"><path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 20,
+          background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)",
+          boxShadow: "var(--shadow-md, var(--shadow-sm))", padding: 8, minWidth: 230,
+        }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {presets.map(p => (
+              <button key={p.label} onClick={p.run} style={{
+                textAlign: "left", font: "inherit", fontSize: 12.5, fontWeight: 500,
+                padding: "7px 10px", borderRadius: "var(--radius-button)", border: "none",
+                background: "transparent", color: "var(--text-primary)", cursor: "pointer",
+              }}
+                onMouseEnter={e => (e.currentTarget.style.background = "var(--indigo-50)")}
+                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+              >{p.label}</button>
+            ))}
+          </div>
+          <div style={{ borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 8 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-tertiary)", marginBottom: 6 }}>Custom range</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <input type="date" value={cf} max={ct || undefined} onChange={e => setCf(e.target.value)} style={inputSt} />
+              <span style={{ color: "var(--text-tertiary)" }}>→</span>
+              <input type="date" value={ct} min={cf || undefined} onChange={e => setCt(e.target.value)} style={inputSt} />
+            </div>
+            <button onClick={() => apply(cf || null, ct || null)} style={{
+              marginTop: 8, width: "100%", font: "inherit", fontSize: 12.5, fontWeight: 600,
+              padding: "7px 10px", borderRadius: "var(--radius-button)", border: "none",
+              background: "var(--accent)", color: "#fff", cursor: "pointer",
+            }}>Apply</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+function CalendarIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
+    </svg>
+  );
+}
+
 /* ── Filter pill ── */
 export function FilterPill({
   active, onClick, children, dot,
@@ -89,6 +236,33 @@ function VDivider(): JSX.Element {
   return <span style={{ width: 1, height: 18, background: "var(--border)", flex: "none", margin: "0 4px" }} />;
 }
 
+/* ── Collapsible category label — click collapses its pills, double-click re-opens ── */
+function CatToggle({
+  label, open, setOpen,
+}: {
+  label: string; open: boolean; setOpen: (v: boolean) => void;
+}): JSX.Element {
+  return (
+    <button
+      onClick={() => setOpen(!open)}
+      title={open ? "Collapse" : "Expand"}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer",
+        border: "none", background: "none", padding: "3px 2px",
+        fontSize: 10.5, fontWeight: 700, color: "var(--text-tertiary)",
+        letterSpacing: "0.07em", textTransform: "uppercase", whiteSpace: "nowrap",
+        userSelect: "none",
+      }}
+    >
+      {label}
+      <svg width="9" height="9" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="3"
+        style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s ease" }}>
+        <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+}
+
 /* ── Sort arrow icon ── */
 function SortArrow({ active, asc }: { active: boolean; asc: boolean }): JSX.Element {
   return (
@@ -107,10 +281,11 @@ function SortArrow({ active, asc }: { active: boolean; asc: boolean }): JSX.Elem
 
 /* ── Column header cell (sortable) ── */
 function ColHeader({
-  label, sortKey, current, dir, onSort, style, align = "left",
+  label, sortKey, current, dir, onSort, style, align = "left", countBadge,
 }: {
   label: string; sortKey?: SortKey; current: SortKey; dir: "asc" | "desc";
   onSort: (k: SortKey) => void; style?: CSSProperties; align?: "left" | "right" | "center";
+  countBadge?: number;
 }): JSX.Element {
   const active = sortKey !== undefined && current === sortKey;
   const content = (
@@ -121,6 +296,9 @@ function ColHeader({
     }}>
       {label}
       {sortKey && <SortArrow active={active} asc={active && dir === "asc"} />}
+      {countBadge !== undefined && (
+        <span style={{ marginLeft: 2, fontWeight: 700, color: "var(--text-secondary)", fontVariantNumeric: "tabular-nums" }}>({countBadge})</span>
+      )}
     </span>
   );
   const base: CSSProperties = {
@@ -143,35 +321,33 @@ function ColHeader({
 
 /* ── The fixed table header row ── */
 function TableHeader({
-  sort, dir, onSort, count,
+  sort, dir, onSort, count, showConnects,
 }: {
-  sort: SortKey; dir: "asc" | "desc"; onSort: (k: SortKey) => void; count: number;
+  sort: SortKey; dir: "asc" | "desc"; onSort: (k: SortKey) => void; count: number; showConnects: boolean;
 }): JSX.Element {
   const shared = { sort, dir, onSort } as const;
   return (
     <div className="rx-table-header" style={{
       display: "grid",
-      gridTemplateColumns: GRID,
-      height: 38,
+      gridTemplateColumns: gridCols(showConnects),
+      height: 40,
       background: "var(--surface-2)",
-      borderBottom: "2px solid var(--border)",
+      borderBottom: "1px solid var(--border)",
       borderRadius: "12px 12px 0 0",
       position: "sticky", top: 0, zIndex: 2,
     }}>
-      {/* Status col — shows job count */}
-      <div style={{ padding: "0 12px", display: "flex", alignItems: "center" }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-          Status
-          <span style={{ marginLeft: 6, fontFamily: "var(--font-mono)", fontWeight: 700, color: "var(--text-secondary)", fontSize: 11 }}>({count})</span>
-        </span>
+      {/* Column headers — all centered */}
+      <ColHeader label="Created" sortKey="created" current={sort} {...shared} align="center"
+        countBadge={count} />
+      <ColHeader label="Job title & description" sortKey={undefined} current={sort} {...shared} align="center" />
+      <ColHeader label="Budget" sortKey="budget" current={sort} {...shared} align="center" />
+      {showConnects && <ColHeader label="Connects" sortKey="connects" current={sort} {...shared} align="center" />}
+      <div style={{ padding: "0 12px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>Assignee</span>
       </div>
-      <ColHeader label="Job title & description" sortKey={undefined} current={sort} {...shared} style={{ paddingLeft: 0 }} />
-      <ColHeader label="Budget" sortKey="budget" current={sort} {...shared} align="right" />
-      <ColHeader label="Connects" sortKey="connects" current={sort} {...shared} align="right" />
-      <ColHeader label="Posted" sortKey="posted" current={sort} {...shared} align="right" />
-      <ColHeader label="Created" sortKey="created" current={sort} {...shared} align="right" />
-      <div style={{ padding: "0 12px", display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
-        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>Action</span>
+      {/* Status col — proposal pipeline state (LAST) */}
+      <div style={{ padding: "0 12px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-tertiary)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Status</span>
       </div>
     </div>
   );
@@ -219,67 +395,43 @@ function RepPicker({
   );
 }
 
-/* ── Row action cell ── */
-function RowAction({
-  job, onGenerate, onAssign, onRegenerate, isAdmin, reps, onAssignToRep,
+/* ── Assignee cell — who currently owns the job ──
+   Reps see a read-only owner (actions live in the detail peek). Admins get the inline
+   rep picker on unassigned/non-terminal jobs so they can (re)assign without opening it. */
+function AssigneeCell({
+  job, isAdmin, reps, onAssignToRep,
 }: {
-  job: Job; onGenerate: () => void; onAssign: () => void; onRegenerate: () => void;
-  isAdmin: boolean; reps: Rep[]; onAssignToRep: (job: Job, repId: string) => void | Promise<void>;
-}): JSX.Element | null {
-  const stop = (fn: () => void) => (e: MouseEvent) => { e.stopPropagation(); fn(); };
-  if (job.relevance === "irrelevant") {
-    return <span style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontStyle: "italic" }}>Auto-filtered</span>;
-  }
-  // Admins assign/reassign to any rep for non-terminal jobs (keep submitted/conversation as-is).
+  job: Job; isAdmin: boolean; reps: Rep[]; onAssignToRep: (job: Job, repId: string) => void | Promise<void>;
+}): JSX.Element {
+  // Admin: assign/reassign inline while the job has no proposal committed yet.
   if (isAdmin && job.actionState === "not-actioned") {
     return <RepPicker job={job} reps={reps} onAssignToRep={onAssignToRep} />;
   }
-  if (job.actionState === "submitted") {
+  // Owned — show the assignee's exact name from the DB (jobs.picked_by_name / users.full_name).
+  if (job.owner) {
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }} onClick={e => e.stopPropagation()}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+        <Avatar person={job.owner} size={24} />
         <span style={{
-          display: "inline-flex", alignItems: "center", gap: 4,
-          fontSize: 11.5, fontWeight: 600, color: "var(--relevant-text)",
-          background: "var(--relevant-fill)", padding: "4px 9px",
-          borderRadius: "var(--radius-pill)", whiteSpace: "nowrap",
-        }}>
-          <RXIcons.check size={12} /> Submitted
-        </span>
-        <button onClick={stop(onRegenerate)} title="Regenerate" style={{
-          width: 26, height: 26, borderRadius: "var(--radius-button)",
-          border: "1px solid var(--border)", background: "var(--surface)",
-          color: "var(--text-secondary)", cursor: "pointer",
-          display: "inline-flex", alignItems: "center", justifyContent: "center",
-          flexShrink: 0,
-        }}><RXIcons.refresh size={13} /></button>
-      </div>
-    );
-  }
-  if (job.actionState === "conversation") {
-    return (
-      <span style={{
-        display: "inline-flex", alignItems: "center", gap: 4,
-        fontSize: 11.5, fontWeight: 600, color: "var(--info-text)",
-        background: "var(--info-fill)", padding: "4px 9px",
-        borderRadius: "var(--radius-pill)", whiteSpace: "nowrap",
-      }}>
-        <RXIcons.chat size={12} /> In conversation
+          fontSize: 13, fontWeight: 600, color: "var(--text-primary)",
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>{job.owner.first || job.owner.name}</span>
       </span>
     );
   }
-  if (job.ownership === "mine") {
-    return <div onClick={e => e.stopPropagation()}><Button size="sm" spark onClick={onGenerate}>Generate</Button></div>;
-  }
-  if (job.ownership === "available") {
-    return <div onClick={e => e.stopPropagation()}><Button size="sm" variant="secondary" onClick={onAssign}>Assign to me</Button></div>;
-  }
-  return null;
+  // Nobody owns it yet.
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--text-tertiary)", fontSize: 12.5, fontWeight: 500 }}>
+      <span style={{ width: 7, height: 7, borderRadius: 999, background: "var(--live)", flex: "none" }} />
+      Available
+    </span>
+  );
 }
 
 /* ── A single table row ── */
 export function JobRow({
   job, onOpen, onGenerate, onAssign, onRegenerate,
-  isAdmin = false, reps = [], onAssignToRep,
+  isAdmin = false, reps = [], onAssignToRep, showConnects = false,
 }: {
   job: Job;
   onOpen: (job: Job) => void;
@@ -289,14 +441,14 @@ export function JobRow({
   isAdmin?: boolean;
   reps?: Rep[];
   onAssignToRep?: (job: Job, repId: string) => void | Promise<void>;
+  showConnects?: boolean;
 }): JSX.Element {
   const [hover, setHover] = useState(false);
-  const isIrrelevant = job.relevance === "irrelevant";
 
+  // Modern data-table: NO vertical grid lines — only a light row divider + hover lift.
   const cellBase: CSSProperties = {
     display: "flex", alignItems: "center",
-    padding: "14px 12px",
-    borderRight: "1px solid var(--border)",
+    padding: "22px 14px",
   };
 
   return (
@@ -308,28 +460,27 @@ export function JobRow({
       onMouseLeave={() => setHover(false)}
       style={{
         display: "grid",
-        gridTemplateColumns: GRID,
+        gridTemplateColumns: gridCols(showConnects),
         borderBottom: "1px solid var(--border)",
         cursor: "pointer",
         background: hover ? "var(--indigo-50)" : "var(--surface)",
-        transition: "background 0.1s ease",
-        opacity: isIrrelevant ? 0.5 : 1,
-        minHeight: 72,
+        boxShadow: hover ? "inset 3px 0 0 var(--accent)" : "inset 3px 0 0 transparent",
+        transition: "background 0.14s ease, box-shadow 0.14s ease",
+        minHeight: 92,
       }}
     >
-      {/* ── Col 1: Status badges ── */}
-      <div style={{ ...cellBase, flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 5 }}>
-        <RelevanceBadge state={job.relevance} dense />
-        <QualityChip quality={job.quality} dense />
+      {/* ── Col 1: Created (in our DB) — FIRST ── */}
+      <div className="rx-col-created" style={{ ...cellBase, justifyContent: "flex-start" }}>
+        <DateCell value={job.createdAgo} align="flex-start" />
       </div>
 
       {/* ── Col 2: Title + snippet + meta ── */}
-      <div style={{ ...cellBase, borderRight: "none", flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 4, padding: "12px 16px 12px 12px", minWidth: 0 }}>
+      <div style={{ ...cellBase, flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 6, padding: "18px 16px 18px 12px", minWidth: 0 }}>
         {/* Title line */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", minWidth: 0 }}>
           <span style={{
-            fontSize: 14, fontWeight: 700, color: "var(--text-primary)",
-            letterSpacing: "-0.01em", lineHeight: 1.3,
+            fontSize: 15, fontWeight: 700, color: "var(--text-primary)",
+            letterSpacing: "-0.015em", lineHeight: 1.25,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             flex: 1, minWidth: 0,
           }}>{job.title}</span>
@@ -339,9 +490,11 @@ export function JobRow({
               onClick={e => e.stopPropagation()}
               title="Open on Upwork"
               style={{
-                flexShrink: 0, display: "inline-flex", alignItems: "center",
-                color: "var(--text-tertiary)", opacity: 0.7,
-                transition: "opacity 0.1s",
+                flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                width: 26, height: 26, borderRadius: "var(--radius-button)",
+                color: "var(--accent)", background: "var(--accent-tint)",
+                border: "1px solid var(--indigo-200)",
+                transition: "background 0.12s ease, color 0.12s ease",
               }}
             >
               <ExternalIcon />
@@ -349,100 +502,85 @@ export function JobRow({
           )}
         </div>
 
-        {/* Description snippet — 2-line clamp */}
-        {job.desc && (
-          <p style={{
-            margin: 0, fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.5,
-            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
-            overflow: "hidden", width: "100%",
-          }}>{job.desc.replace(/\s+/g, " ").trim()}</p>
-        )}
-
-        {/* AI reason */}
-        {job.reason && (
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 5, width: "100%" }}>
-            <RXIcons.spark size={11} style={{ flexShrink: 0, marginTop: 2, color: "var(--accent)", opacity: 0.75 }} />
-            <span style={{
-              fontSize: 11.5, color: "var(--text-tertiary)", lineHeight: 1.4, fontStyle: "italic",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0,
-            }}>{job.reason}</span>
-          </div>
-        )}
-
-        {/* Taxonomy chips + ownership + location/payment in one compact row */}
-        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
+        {/* Meta line — taxonomy + location + payment (under the title, image-2 style) */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {job.chips.map((c, i) => <TaxonomyChip key={i} level={c.level} isNew={c.isNew}>{c.label}</TaxonomyChip>)}
-          <Ownership job={job} />
           {job.client.location && job.client.location !== "—" && (
             <MetaTag icon={<PinIcon />} text={job.client.location} />
           )}
           {job.client.payment && job.client.payment !== "—" && (
             <PaymentTag verified={job.client.payment === "Verified"} />
           )}
-          {/* Mobile-only: budget + posted inline since those columns are hidden */}
+          {/* Mobile-only: budget inline since that column is hidden on small screens */}
           {job.budget && <span className="rx-mobile-only" style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 700, color: "var(--text-primary)" }}>{job.budget}</span>}
-          <span className="rx-mobile-only" style={{ fontFamily: "var(--font-mono)", fontSize: 11.5, color: "var(--text-tertiary)" }}>{job.postedAgo}</span>
+        </div>
+
+        {/* Description snippet — 2-line clamp (clearly smaller + lighter than the title) */}
+        {job.desc && (
+          <p style={{
+            margin: "4px 0", fontSize: 12.5, fontWeight: 400, color: "var(--text-tertiary)", lineHeight: 1.6,
+            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+            overflow: "hidden", width: "100%",
+          }}>{job.desc.replace(/\s+/g, " ").trim()}</p>
+        )}
+
+        {/* Relevance + quality + posted date — bottom row (Upwork-card style, Monday colors) */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 2 }}>
+          <RelevanceBadge state={job.relevance} dense />
+          <QualityChip quality={job.quality} dense />
+          {job.postedAgo && job.postedAgo !== "—" && (
+            <MetaTag icon={<ClockIcon />} text={`Posted ${job.postedAgo}`} />
+          )}
         </div>
       </div>
 
-      {/* ── Col 3: Budget ── */}
+      {/* ── Col 4: Budget ── */}
       <div className="rx-col-budget" style={{ ...cellBase, justifyContent: "flex-end" }}>
         <span style={{
-          fontSize: 13, fontWeight: 700, color: "var(--text-primary)",
-          fontFamily: "var(--font-mono)", textAlign: "right", whiteSpace: "nowrap",
+          fontFamily: "var(--font-ui)", fontSize: 13.5, fontWeight: 700, color: "var(--text-primary)",
+          fontVariantNumeric: "tabular-nums", textAlign: "right", whiteSpace: "nowrap",
         }}>{job.budget || "—"}</span>
       </div>
 
-      {/* ── Col 4: Connects ── */}
-      <div className="rx-col-connects" style={{ ...cellBase, justifyContent: "flex-end" }}>
-        <span style={{
-          fontSize: 13, fontWeight: 600, color: job.connects > 0 ? "var(--text-primary)" : "var(--text-tertiary)",
-          fontFamily: "var(--font-mono)", textAlign: "right",
-        }}>
-          {job.connects > 0 ? job.connects : "—"}
-        </span>
-      </div>
+      {/* ── Col 5: Connects — only in the Submitted view (connects spent) ── */}
+      {showConnects && (
+        <div className="rx-col-connects" style={{ ...cellBase, justifyContent: "flex-end" }}>
+          <span style={{
+            fontFamily: "var(--font-ui)", fontSize: 13.5, fontWeight: 600,
+            color: job.connects > 0 ? "var(--text-primary)" : "var(--text-tertiary)",
+            fontVariantNumeric: "tabular-nums", textAlign: "right",
+          }}>
+            {job.connects > 0 ? job.connects : "—"}
+          </span>
+        </div>
+      )}
 
-      {/* ── Col 5: Posted (on Upwork) ── */}
-      <div className="rx-col-posted" style={{ ...cellBase, justifyContent: "flex-end" }}>
-        <span style={{
-          fontSize: 11.5, color: "var(--text-tertiary)", textAlign: "right",
-          fontFamily: "var(--font-mono)", lineHeight: 1.35,
-        }}>{job.postedAgo}</span>
-      </div>
-
-      {/* ── Col 6: Created (in our DB) ── */}
-      <div className="rx-col-created" style={{ ...cellBase, justifyContent: "flex-end" }}>
-        <span style={{
-          fontSize: 11.5, color: "var(--text-tertiary)", textAlign: "right",
-          fontFamily: "var(--font-mono)", lineHeight: 1.35,
-        }}>{job.createdAgo}</span>
-      </div>
-
-      {/* ── Col 7: Action ── */}
-      <div className="rx-row-action" style={{ ...cellBase, borderRight: "none", justifyContent: "flex-end" }}>
-        <RowAction
+      {/* ── Col 6: Assignee ── */}
+      <div className="rx-row-action" style={{ ...cellBase, justifyContent: "flex-start" }}>
+        <AssigneeCell
           job={job}
-          onGenerate={() => onGenerate(job)}
-          onAssign={() => onAssign(job)}
-          onRegenerate={() => onRegenerate(job)}
           isAdmin={isAdmin}
           reps={reps}
           onAssignToRep={onAssignToRep || (() => {})}
         />
       </div>
+
+      {/* ── Col 8: Proposal status (LAST) ── */}
+      <div style={{ ...cellBase, justifyContent: "flex-start" }}>
+        <StatusBadge state={job.actionState} />
+      </div>
     </div>
   );
 }
 
-/* ── Micro inline tag ── */
+/* ── Micro inline tag (location) ── */
 function MetaTag({ icon, text }: { icon: ReactNode; text: string }) {
   return (
     <span style={{
-      display: "inline-flex", alignItems: "center", gap: 3,
-      fontSize: 11.5, color: "var(--text-tertiary)", whiteSpace: "nowrap",
+      display: "inline-flex", alignItems: "center", gap: 4,
+      fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)", whiteSpace: "nowrap",
     }}>
-      <span style={{ display: "inline-flex", opacity: 0.6 }}>{icon}</span>
+      <span style={{ display: "inline-flex", color: "var(--accent)", opacity: 0.85 }}>{icon}</span>
       {text}
     </span>
   );
@@ -473,6 +611,13 @@ function PinIcon() {
     </svg>
   );
 }
+function ClockIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
 function ExternalIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -483,7 +628,7 @@ function ExternalIcon() {
 }
 
 /* ── Skeleton loading row ── */
-function SkeletonRow(): JSX.Element {
+function SkeletonRow({ showConnects = false }: { showConnects?: boolean }): JSX.Element {
   const bar = (w: string | number, h = 11) => (
     <span style={{
       display: "inline-block", height: h, width: w, borderRadius: 3, flexShrink: 0,
@@ -494,20 +639,23 @@ function SkeletonRow(): JSX.Element {
   return (
     <div className="rx-skeleton-row" style={{
       display: "grid",
-      gridTemplateColumns: GRID,
+      gridTemplateColumns: gridCols(showConnects),
       borderBottom: "1px solid var(--border)", minHeight: 72,
     }}>
-      <div style={{ padding: "14px 12px", display: "flex", flexDirection: "column", gap: 6, justifyContent: "center" }}>
-        {bar(70)}{bar(64)}
-      </div>
+      {/* created */}
+      <div style={{ padding: "14px 12px", display: "flex", flexDirection: "column", gap: 4, justifyContent: "center" }}>{bar(64, 12)}{bar(40)}</div>
+      {/* title */}
       <div style={{ padding: "12px 16px 12px 0", display: "flex", flexDirection: "column", gap: 7, justifyContent: "center" }}>
-        {bar("60%", 13)}{bar("85%")}{bar("40%")}
+        {bar("55%", 13)}{bar(120, 18)}{bar("85%")}{bar("40%")}
       </div>
+      {/* budget */}
       <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>{bar(60)}</div>
-      <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>{bar(32)}</div>
-      <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>{bar(44)}</div>
-      <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>{bar(44)}</div>
-      <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>{bar(90, 28)}</div>
+      {/* connects */}
+      {showConnects && <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>{bar(32)}</div>}
+      {/* assignee */}
+      <div style={{ padding: 14, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>{bar(100, 24)}</div>
+      {/* status */}
+      <div style={{ padding: "14px 12px", display: "flex", alignItems: "center" }}>{bar(72, 22)}</div>
     </div>
   );
 }
@@ -546,27 +694,56 @@ function ErrorState({ message, onRetry }: { message: string; onRetry?: () => voi
 }
 
 /* ── KPI strip ── (counts come from the server, scoped to the role/tab, not the page) */
-export interface BoardStats { on_board: number; relevant: number; review: number; submitted: number }
+export interface BoardStats { on_board: number; relevant: number; review: number; submitted: number; connect_spent?: number }
 
-function KpiStrip({ stats }: { stats: BoardStats }): JSX.Element {
-  const kpis = [
-    { label: "On board",     value: stats.on_board,  color: "var(--text-primary)",   fill: "var(--surface)" },
-    { label: "Relevant",     value: stats.relevant,  color: "var(--relevant-text)",  fill: "var(--relevant-fill)" },
-    { label: "Needs review", value: stats.review,    color: "var(--review-text)",    fill: "var(--review-fill)" },
-    { label: "Submitted",    value: stats.submitted, color: "var(--info-text)",      fill: "var(--info-fill)" },
+type KpiKey = "on_board" | "relevant" | "review" | "submitted";
+
+function KpiStrip({ stats, onSelect, activeKey }: {
+  stats: BoardStats;
+  onSelect?: (key: KpiKey) => void;
+  activeKey?: KpiKey | null;
+}): JSX.Element {
+  // Clickable filter KPIs.
+  const kpis: { key: KpiKey; label: string; value: number; color: string; fill: string }[] = [
+    { key: "on_board",  label: "On board",     value: stats.on_board,  color: "var(--text-primary)",   fill: "var(--surface)" },
+    { key: "relevant",  label: "Relevant",     value: stats.relevant,  color: "var(--relevant-text)",  fill: "var(--relevant-fill)" },
+    { key: "review",    label: "Needs review", value: stats.review,    color: "var(--review-text)",    fill: "var(--review-fill)" },
+    { key: "submitted", label: "Submitted",    value: stats.submitted, color: "var(--info-text)",      fill: "var(--info-fill)" },
   ];
+  const labelSt = { fontSize: 11, fontWeight: 500 as const, marginBottom: 4, letterSpacing: "0.01em", opacity: 0.8 };
+  const valueSt = { fontSize: 24, fontWeight: 700 as const, fontFamily: "var(--font-mono)", letterSpacing: "-0.03em", lineHeight: 1 };
   return (
-    <div className="rx-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
-      {kpis.map((k, i) => (
-        <div key={i} style={{
-          background: k.fill, border: "1px solid var(--border)",
-          borderRadius: "var(--radius-card)", padding: "13px 16px",
-          boxShadow: "var(--shadow-sm)",
-        }}>
-          <div style={{ fontSize: 11.5, color: k.color, fontWeight: 500, marginBottom: 5, letterSpacing: "0.01em", opacity: 0.8 }}>{k.label}</div>
-          <div style={{ fontSize: 28, fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: "-0.03em", color: k.color, lineHeight: 1 }}>{k.value}</div>
-        </div>
-      ))}
+    <div className="rx-kpi-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 18 }}>
+      {kpis.map((k) => {
+        const clickable = !!onSelect;
+        const active = activeKey === k.key;
+        return (
+          <button
+            key={k.key}
+            onClick={clickable ? () => onSelect!(k.key) : undefined}
+            style={{
+              textAlign: "left", font: "inherit",
+              background: k.fill,
+              border: active ? "1px solid var(--accent)" : "1px solid var(--border)",
+              borderRadius: "var(--radius-card)", padding: "11px 13px",
+              boxShadow: active ? "0 0 0 3px var(--accent-tint)" : "var(--shadow-sm)",
+              cursor: clickable ? "pointer" : "default",
+              transition: "box-shadow 0.12s ease, border-color 0.12s ease, transform 0.12s ease",
+            }}
+          >
+            <div style={{ ...labelSt, color: k.color }}>{k.label}</div>
+            <div style={{ ...valueSt, color: k.color }}>{k.value}</div>
+          </button>
+        );
+      })}
+      {/* Connect spent — a metric, not a filter. Scoped to the tab (All → overall, Assigned to me → own). */}
+      <div style={{
+        background: "var(--accent-tint)", border: "1px solid var(--indigo-200)",
+        borderRadius: "var(--radius-card)", padding: "11px 13px", boxShadow: "var(--shadow-sm)",
+      }}>
+        <div style={{ ...labelSt, color: "var(--accent-on-tint)" }}>Connect spent</div>
+        <div style={{ ...valueSt, color: "var(--accent-on-tint)" }}>{stats.connect_spent ?? 0}</div>
+      </div>
     </div>
   );
 }
@@ -574,8 +751,14 @@ function KpiStrip({ stats }: { stats: BoardStats }): JSX.Element {
 /* ── Board query state (lifted to App; filtering/sorting/paging run server-side) ── */
 export interface BoardControls {
   tab: TabId;
-  relevance: "all" | "relevant" | "review";
+  relevance: "all" | "relevant" | "review" | "irrelevant";
+  // Client-only: the Submitted KPI view. Not sent to the API — App aggregates the rep's own
+  // pages and filters to submitted rows (submitted proposals are always the rep's own jobs).
+  submittedView: boolean;
   quality: string[];
+  // Created-date range (YYYY-MM-DD, inclusive) — drives the whole board + KPI strip. null = all time.
+  dateFrom: string | null;
+  dateTo: string | null;
   sort: SortKey;
   dir: "asc" | "desc";
   page: number;
@@ -584,7 +767,10 @@ export interface BoardControls {
 export const DEFAULT_CONTROLS: BoardControls = {
   tab: "all",
   relevance: "all",
+  submittedView: false,
   quality: [],
+  dateFrom: null,
+  dateTo: null,
   sort: "posted",
   dir: "desc",
   page: 1,
@@ -692,44 +878,68 @@ export function JobBoard({
   reps?: Rep[];
   onAssignToRep?: (job: Job, repId: string) => void | Promise<void>;
 }): JSX.Element {
+  // Collapsible filter categories — single click collapses, double click re-opens.
+  const [relOpen, setRelOpen] = useState(true);
+  const [qualOpen, setQualOpen] = useState(true);
+
   // Any change to a filter/sort/tab resets to page 1; page changes keep the rest.
   const patch = (p: Partial<BoardControls>, resetPage = true) =>
     setControls({ ...controls, ...p, ...(resetPage ? { page: 1 } : {}) });
 
   const setTab = (tab: TabId) => patch({ tab });
-  const setRel = (relevance: BoardControls["relevance"]) => patch({ relevance });
+  // Any relevance/quality change also leaves the Submitted view (they're mutually exclusive).
+  const setRel = (relevance: BoardControls["relevance"]) => patch({ relevance, submittedView: false });
   const toggleQuality = (v: string) =>
-    patch({ quality: controls.quality.includes(v) ? controls.quality.filter(x => x !== v) : [...controls.quality, v] });
+    patch({ quality: controls.quality.includes(v) ? controls.quality.filter(x => x !== v) : [...controls.quality, v], submittedView: false });
 
   const handleSort = (k: SortKey) => {
     if (k === controls.sort) patch({ dir: controls.dir === "desc" ? "asc" : "desc" });
     else                     patch({ sort: k, dir: "desc" });
   };
 
+  // Relevance = single-select (mirrors the DB job_verdict / extension tags); Quality = multi-select.
+  const REL_PILLS = [
+    { id: "relevant",   label: "Relevant",     dot: "var(--mon-green)"  },
+    { id: "review",     label: "Needs review", dot: "var(--mon-orange)" },
+    { id: "irrelevant", label: "Irrelevant",   dot: "var(--mon-red)"    },
+  ];
   const QUAL_PILLS = [
-    { id: "good",   label: "Good",   dot: "var(--status-good)" },
-    { id: "medium", label: "Medium", dot: "var(--status-warn)" },
-    { id: "watch",  label: "Watch",  dot: "var(--status-info)" },
-    { id: "poor",   label: "Poor",   dot: "var(--status-bad)"  },
+    { id: "good",   label: "Good",   dot: "var(--mon-green)"  },
+    { id: "medium", label: "Medium", dot: "var(--mon-orange)" },
+    { id: "poor",   label: "Poor",   dot: "var(--mon-red)"    },
   ];
 
-  const headerRight = (
-    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-      <Segmented value={controls.tab} onChange={setTab} options={TABS} />
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "var(--text-tertiary)" }}>
-        <span style={{ width: 6, height: 6, borderRadius: 999, background: "var(--live)", display: "inline-block" }} />
-        <span style={{ fontFamily: "var(--font-mono)" }}>live</span>
-      </span>
-      <BellButton onNavigate={onNavigate} />
-    </div>
-  );
+  const allActive = controls.relevance === "all" && !controls.submittedView && controls.quality.length === 0;
+  const resetFilters = () => patch({ relevance: "all", submittedView: false, quality: [] });
+
+  // KPI cards act as quick filters. Relevance ones filter server-side; Submitted is a client-side
+  // aggregate over the rep's own pages (App does the fetching), so it spans every page.
+  let kpiActive: KpiKey | null = null;
+  if (controls.submittedView) kpiActive = "submitted";
+  else if (allActive) kpiActive = "on_board";
+  else if (controls.relevance === "relevant") kpiActive = "relevant";
+  else if (controls.relevance === "review") kpiActive = "review";
+  const onKpi = (key: KpiKey) => {
+    // KPIs are mutually exclusive — picking any other one drops the Submitted view (setRel/reset clear it).
+    if (key === "submitted") patch({ submittedView: !controls.submittedView });
+    else if (key === "on_board") resetFilters();
+    else if (key === "relevant") setRel("relevant");
+    else if (key === "review") setRel("review");
+  };
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <PageHeader title="Job board" subtitle="Read the job, decide if it's worth it, act in one click." right={headerRight} />
+      {/* Slim header bar (replaces the tall page header) */}
+      <div style={{
+        display: "flex", alignItems: "center",
+        padding: "8px 28px", borderBottom: "1px solid var(--border)",
+        background: "var(--surface)", flexShrink: 0,
+      }}>
+        <DateRangeControl from={controls.dateFrom} to={controls.dateTo} onChange={(f, t) => patch({ dateFrom: f, dateTo: t })} />
+      </div>
 
       <div className="rx-page-content" style={{ flex: 1, overflowY: "auto", padding: "20px 28px 40px" }}>
-        <KpiStrip stats={stats} />
+        <KpiStrip stats={stats} onSelect={onKpi} activeKey={kpiActive} />
 
         {/* ── Filter bar ── */}
         <div className="rx-filter-bar" style={{
@@ -738,25 +948,30 @@ export function JobBoard({
           background: "var(--surface)", border: "1px solid var(--border)",
           borderRadius: "var(--radius-card)", boxShadow: "var(--shadow-sm)",
         }}>
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-tertiary)", letterSpacing: "0.07em", textTransform: "uppercase", marginRight: 2, whiteSpace: "nowrap" }}>Relevance</span>
-          <FilterPill active={controls.relevance === "all"}      onClick={() => setRel("all")}>All</FilterPill>
-          <FilterPill active={controls.relevance === "relevant"} onClick={() => setRel("relevant")}>Relevant</FilterPill>
-          <FilterPill active={controls.relevance === "review"}   onClick={() => setRel("review")}>Needs review</FilterPill>
+          {/* Master reset — relevance = all + no quality filter */}
+          <FilterPill active={allActive} onClick={resetFilters}>All</FilterPill>
 
-          <VDivider />
+          {/* Relevance category (collapsible) */}
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 14 }}>
+            <CatToggle label="Relevance" open={relOpen} setOpen={setRelOpen} />
+            {relOpen && REL_PILLS.map(r => (
+              <FilterPill key={r.id} active={controls.relevance === r.id} dot={r.dot} onClick={() => setRel(r.id as BoardControls["relevance"])}>{r.label}</FilterPill>
+            ))}
+          </div>
 
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-tertiary)", letterSpacing: "0.07em", textTransform: "uppercase", marginRight: 2, whiteSpace: "nowrap" }}>Quality</span>
-          {QUAL_PILLS.map(q => (
-            <FilterPill key={q.id} active={controls.quality.includes(q.id)} dot={q.dot} onClick={() => toggleQuality(q.id)}>{q.label}</FilterPill>
-          ))}
+          <span style={{ width: 22, flex: "none" }} />
+
+          {/* Quality category (collapsible) */}
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <CatToggle label="Quality" open={qualOpen} setOpen={setQualOpen} />
+            {qualOpen && QUAL_PILLS.map(q => (
+              <FilterPill key={q.id} active={controls.quality.includes(q.id)} dot={q.dot} onClick={() => toggleQuality(q.id)}>{q.label}</FilterPill>
+            ))}
+          </div>
 
           <div style={{ flex: 1 }} />
-          <button title="More filters" style={{
-            width: 30, height: 30, borderRadius: "var(--radius-button)",
-            border: "1px solid var(--border)", background: "var(--surface-2)",
-            color: "var(--text-secondary)", cursor: "pointer",
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-          }}><RXIcons.funnel size={13} /></button>
+          {/* Scope tabs (moved here from the top header) */}
+          <Segmented value={controls.tab} onChange={setTab} options={TABS} />
         </div>
 
         {/* ── Table ── */}
@@ -768,7 +983,7 @@ export function JobBoard({
             <>
               {/* skeleton header */}
               <div style={{ height: 38, background: "var(--surface-2)", borderBottom: "2px solid var(--border)", borderRadius: "12px 12px 0 0" }} />
-              {[0,1,2,3,4].map(i => <SkeletonRow key={i} />)}
+              {[0,1,2,3,4].map(i => <SkeletonRow key={i} showConnects={controls.submittedView} />)}
             </>
           ) : error ? (
             <ErrorState message={error} onRetry={onRetry} />
@@ -776,21 +991,22 @@ export function JobBoard({
             <EmptyState boardEmpty={total === 0} />
           ) : (
             <>
-              <TableHeader sort={controls.sort} dir={controls.dir} onSort={handleSort} count={total} />
+              <TableHeader sort={controls.sort} dir={controls.dir} onSort={handleSort} count={total} showConnects={controls.submittedView} />
               {jobs.map(job => (
                 <JobRow
                   key={job.id} job={job}
                   onOpen={onOpen} onGenerate={onGenerate}
                   onAssign={onAssign} onRegenerate={onRegenerate}
                   isAdmin={isAdmin} reps={reps} onAssignToRep={onAssignToRep}
+                  showConnects={controls.submittedView}
                 />
               ))}
             </>
           )}
         </div>
 
-        {/* ── Pager ── */}
-        {!loading && !error && (
+        {/* ── Pager ── (hidden in the Submitted view, which is a single aggregated list) */}
+        {!loading && !error && !controls.submittedView && (
           <Pager page={controls.page} pageSize={pageSize} total={total} onPage={(p) => patch({ page: p }, false)} />
         )}
       </div>

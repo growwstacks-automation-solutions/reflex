@@ -9,10 +9,10 @@ export interface RelevanceBadgeProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 const RELEVANCE: Record<RelevanceState, { bg: string; on: string; label: string }> = {
-  relevant: { bg: "var(--status-good)", on: "var(--status-good-on)", label: "Relevant" },
-  review: { bg: "var(--status-warn)", on: "var(--status-warn-on)", label: "Needs review" },
-  irrelevant: { bg: "var(--status-bad)", on: "var(--status-bad-on)", label: "Not a fit" },
-  submitted: { bg: "var(--status-info)", on: "var(--status-info-on)", label: "Submitted" },
+  relevant: { bg: "var(--mon-green)", on: "#FFFFFF", label: "Relevant" },
+  review: { bg: "var(--mon-orange)", on: "#FFFFFF", label: "Needs review" },
+  irrelevant: { bg: "var(--mon-red)", on: "#FFFFFF", label: "Irrelevant" },
+  submitted: { bg: "var(--mon-blue)", on: "#FFFFFF", label: "Submitted" },
 };
 
 function RelGlyph({ state, on }: { state: RelevanceState; on: string }): JSX.Element {

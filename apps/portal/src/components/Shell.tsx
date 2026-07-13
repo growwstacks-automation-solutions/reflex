@@ -7,12 +7,13 @@ import { useAuth } from "@/lib/auth";
 
 export type Screen = "board" | "convos" | "props" | "report" | "assets" | "workspace";
 
-export const NAV: { id: Screen; label: string; icon: (p: RXIconProps) => JSX.Element; badge?: number }[] = [
+// `hidden: true` keeps the entry (route still works) but drops it from the sidebar/mobile nav.
+export const NAV: { id: Screen; label: string; icon: (p: RXIconProps) => JSX.Element; badge?: number; hidden?: boolean }[] = [
   { id: "board", label: "Job board", icon: RXIcons.board },
-  { id: "convos", label: "Conversations", icon: RXIcons.chat, badge: 3 },
-  { id: "props", label: "Proposals", icon: RXIcons.proposal },
-  { id: "report", label: "Reporting", icon: RXIcons.chart },
-  { id: "assets", label: "Assets", icon: RXIcons.assets },
+  { id: "convos", label: "Conversations", icon: RXIcons.chat, badge: 3, hidden: true },
+  { id: "props", label: "Proposals", icon: RXIcons.proposal, hidden: true },
+  { id: "report", label: "Reporting", icon: RXIcons.chart, hidden: true },
+  { id: "assets", label: "Assets", icon: RXIcons.assets, hidden: true },
 ];
 
 export function Sidebar({
@@ -64,7 +65,7 @@ export function Sidebar({
 
       {/* Nav */}
       <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {NAV.map((item) => {
+        {NAV.filter((item) => !item.hidden).map((item) => {
           const active = screen === item.id || (item.id === "props" && screen === "workspace");
           return (
             <button

@@ -41,7 +41,7 @@ const SORT_COLUMNS: Record<string, string> = {
 const selectCols = (userP: string) => `
   j.upwork_job_id, j.title, j.verdict, j.quality, j.budget_text,
   j.contract_type, j.fixed_amount, j.hourly_min, j.hourly_max,
-  j.client_country, j.client_country_code, j.connects,
+  j.client_country, j.client_country_code, j.connects, j.connect_spent,
   j.posted_at, j.created_at, j.reason, j.proposal_status,
   j.description, j.url, j.client_spend, j.client_city, j.client_timezone,
   j.client_billing_type, j.client_payment_verified, j.last_client_activity,
@@ -58,6 +58,12 @@ function clampInt(raw: string | null, def: number, min: number, max: number): nu
   const n = raw == null ? NaN : parseInt(raw, 10);
   if (Number.isNaN(n)) return def;
   return Math.min(max, Math.max(min, n));
+}
+
+// Accept only a plain YYYY-MM-DD date; anything else → null (the value is bound as a param, but
+// we keep the input clean and predictable).
+function validDate(raw: string | null): string | null {
+  return raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
 }
 
 export async function board(req: Request, env: Env): Promise<Response> {
@@ -78,6 +84,9 @@ export async function board(req: Request, env: Env): Promise<Response> {
   const relevance = (q.get("relevance") || "all").toLowerCase(); // all | relevant | review
   const quality = q.getAll("quality").map((s) => s.toLowerCase()).filter(Boolean); // good|medium|watch|poor
   const search = (q.get("search") || "").trim();
+  // Date range over the Created date (jobs.created_at). Values are YYYY-MM-DD (inclusive both ends).
+  const dateFrom = validDate(q.get("from"));
+  const dateTo = validDate(q.get("to"));
   const sortKey = (q.get("sort") || "posted").toLowerCase();
   const dir = (q.get("dir") || "desc").toLowerCase() === "asc" ? "asc" : "desc";
 
@@ -119,6 +128,8 @@ export async function board(req: Request, env: Env): Promise<Response> {
   } else if (relevance === "review") {
     // 'review' plus the legacy 'needs_review' rows + un-classified NULLs read as "needs review".
     where.push(`(j.verdict = 'review' or j.verdict = 'needs_review' or j.verdict is null)`);
+  } else if (relevance === "irrelevant") {
+    where.push(`j.verdict = 'irrelevant'`);
   }
 
   // Quality (multi-select).
@@ -132,6 +143,16 @@ export async function board(req: Request, env: Env): Promise<Response> {
     params.push(`%${search}%`);
     const p = `$${params.length}`;
     where.push(`(j.title ilike ${p} or j.description ilike ${p})`);
+  }
+
+  // Date range over jobs.created_at (inclusive). `to` covers the whole day.
+  if (dateFrom) {
+    params.push(dateFrom);
+    where.push(`j.created_at >= $${params.length}::date`);
+  }
+  if (dateTo) {
+    params.push(dateTo);
+    where.push(`j.created_at < ($${params.length}::date + interval '1 day')`);
   }
 
   const whereSql = where.length ? `where ${where.join(" and ")}` : "";
@@ -164,25 +185,42 @@ export async function board(req: Request, env: Env): Promise<Response> {
   // KPI counts over the *role/tab scope* (NOT the current filters/page) so the strip is
   // stable while the rep narrows by relevance/quality. Reuses only $1 (the user id) plus
   // the role/tab WHERE — the relevance/quality/search/limit params are excluded here.
+  // Built with the same lazy-binding discipline as the main query so the date range can be applied
+  // to the KPI counts too (the strip reflects the selected range). Each $N is bound only when used.
+  const statsParams: unknown[] = [];
   const statsWhere: string[] = [];
-  if (!isAdmin) statsWhere.push(`(a.user_id = $1 or a.user_id is null)`);
-  if (tab === "mine") statsWhere.push(`a.user_id = $1`);
+  let sUserPlaceholder: string | null = null;
+  const sUserP = (): string => {
+    if (sUserPlaceholder === null) {
+      statsParams.push(user.sub);
+      sUserPlaceholder = `$${statsParams.length}`;
+    }
+    return sUserPlaceholder;
+  };
+  if (!isAdmin) statsWhere.push(`(a.user_id = ${sUserP()} or a.user_id is null)`);
+  if (tab === "mine") statsWhere.push(`a.user_id = ${sUserP()}`);
   else if (tab === "available") statsWhere.push(`a.user_id is null`);
+  if (dateFrom) {
+    statsParams.push(dateFrom);
+    statsWhere.push(`j.created_at >= $${statsParams.length}::date`);
+  }
+  if (dateTo) {
+    statsParams.push(dateTo);
+    statsWhere.push(`j.created_at < ($${statsParams.length}::date + interval '1 day')`);
+  }
   const statsWhereSql = statsWhere.length ? `where ${statsWhere.join(" and ")}` : "";
-  // Only bind $1 when the stats WHERE actually references it. Admin on the "all" tab has
-  // no WHERE → zero placeholders, so binding a param would error ("supplies 1 … requires 0").
-  const statsParams = statsWhere.length ? [user.sub] : [];
 
   const statsRows = (await sql(
     `select
        count(*)::int as on_board,
        count(*) filter (where j.verdict = 'relevant')::int as relevant,
        count(*) filter (where j.verdict in ('review','needs_review') or j.verdict is null)::int as review,
-       count(*) filter (where j.proposal_status = 'Submitted')::int as submitted
+       count(*) filter (where j.proposal_status = 'Submitted')::int as submitted,
+       coalesce(sum(j.connect_spent), 0)::int as connect_spent
      ${FROM_JOINS} ${statsWhereSql}`,
     statsParams,
-  )) as Array<{ on_board: number; relevant: number; review: number; submitted: number }>;
-  const stats = statsRows[0] ?? { on_board: 0, relevant: 0, review: 0, submitted: 0 };
+  )) as Array<{ on_board: number; relevant: number; review: number; submitted: number; connect_spent: number }>;
+  const stats = statsRows[0] ?? { on_board: 0, relevant: 0, review: 0, submitted: 0, connect_spent: 0 };
 
   return json({ jobs: rows, total, page, page_size: pageSize, stats });
 }

@@ -219,7 +219,7 @@ export function JobDetailPeek({
                   job.actionState === "submitted"
                     ? <span style={{ color: "var(--relevant-text)", fontWeight: 600 }}>Submitted</span>
                     : job.actionState === "conversation"
-                    ? <span style={{ color: "var(--info-text)", fontWeight: 600 }}>In conversation</span>
+                    ? <span style={{ color: "var(--info-text)", fontWeight: 600 }}>In contact</span>
                     : <span style={{ color: "var(--text-tertiary)" }}>Not submitted</span>
                 }
               />
@@ -228,13 +228,18 @@ export function JobDetailPeek({
         </div>
 
         {/* ── Footer ── */}
+        {/* "Generate proposal" is hidden for now; "Open on Upwork" takes the primary (filled) style. */}
         <div style={{
           display: "flex", alignItems: "center", gap: 10,
           padding: "12px 18px", borderTop: "1px solid var(--border)",
           background: "var(--surface)", flexShrink: 0,
         }}>
+          <div style={{ flex: 1 }} />
+          {job.ownership === "available" && (
+            <Button variant="secondary" onClick={() => onAssign(job)}>Assign to me</Button>
+          )}
           <Button
-            variant="ghost"
+            spark
             size="md"
             icon={<RXIcons.external size={14} />}
             disabled={!job.url}
@@ -242,14 +247,6 @@ export function JobDetailPeek({
           >
             Open on Upwork
           </Button>
-          <div style={{ flex: 1 }} />
-          {job.ownership === "available" && (
-            <Button variant="secondary" onClick={() => onAssign(job)}>Assign to me</Button>
-          )}
-          {job.relevance !== "irrelevant"
-            ? <Button spark onClick={() => onGenerate(job)}>+ Generate proposal</Button>
-            : <span style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>Auto-filtered — not pursued</span>
-          }
         </div>
       </div>
     </div>

@@ -31,6 +31,7 @@ export interface ApiBoardJob {
   client_country: string | null;
   client_country_code: string | null;
   connects: number | string | null;
+  connect_spent: number | string | null; // connects spent on the submitted proposal
   posted_at: string | null; // when the job was posted on Upwork
   created_at: string | null; // when the row was created in our DB
   reason: string | null;
@@ -74,8 +75,10 @@ export interface BoardQuery {
   tab?: "mine" | "available" | "all";
   page?: number;
   pageSize?: number;
-  relevance?: "all" | "relevant" | "review";
+  relevance?: "all" | "relevant" | "review" | "irrelevant";
   quality?: string[]; // good | medium | watch | poor
+  from?: string | null; // created_at range start (YYYY-MM-DD, inclusive)
+  to?: string | null; // created_at range end (YYYY-MM-DD, inclusive)
   search?: string;
   sort?: "posted" | "created" | "budget" | "connects";
   dir?: "asc" | "desc";
@@ -87,6 +90,7 @@ export interface BoardStats {
   relevant: number;
   review: number;
   submitted: number;
+  connect_spent?: number; // sum of jobs.connect_spent over the scope (Worker stats must return it)
 }
 
 /** A page of board jobs + the total matching count (for the pager) + scope-wide KPIs. */
@@ -200,12 +204,40 @@ export async function generateProposal(
   };
 }
 
+/** Per-job status from the already-deployed POST /jobs/check (reads jobs.picked_by_name etc.). */
+export interface JobCheckStatus {
+  owner?: string; // jobs.picked_by_name — the assignee's first name
+  ownership: "mine" | "other" | "available";
+  actioned: "none" | "generated" | "submitted";
+  drafted: boolean;
+  submitted: boolean;
+}
+
+/**
+ * POST /jobs/check — batch status for the given Upwork job ids. Read-only, no auth required, and
+ * already live on the deployed Worker, so the board can enrich its rows (assignee + pipeline
+ * status from the denormalized jobs.picked_by_name / proposal state) with no Worker change.
+ */
+export async function checkJobs(jobIds: string[]): Promise<Record<string, JobCheckStatus>> {
+  if (!jobIds.length) return {};
+  const res = await fetch(`${BASE}/jobs/check`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jobIds }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { statuses?: Record<string, JobCheckStatus>; error?: string };
+  if (!res.ok) throw new Error(data.error || `Couldn't check jobs (${res.status})`);
+  return data.statuses || {};
+}
+
 export async function fetchBoard(token: string, query: BoardQuery = {}): Promise<BoardPage> {
   const p = new URLSearchParams();
   if (query.tab) p.set("tab", query.tab);
   if (query.page) p.set("page", String(query.page));
   if (query.pageSize) p.set("page_size", String(query.pageSize));
   if (query.relevance) p.set("relevance", query.relevance);
+  if (query.from) p.set("from", query.from);
+  if (query.to) p.set("to", query.to);
   if (query.search) p.set("search", query.search);
   if (query.sort) p.set("sort", query.sort);
   if (query.dir) p.set("dir", query.dir);
@@ -230,6 +262,6 @@ export async function fetchBoard(token: string, query: BoardQuery = {}): Promise
     total: data.total ?? (data.jobs?.length || 0),
     page: data.page ?? query.page ?? 1,
     pageSize: data.page_size ?? query.pageSize ?? 50,
-    stats: data.stats ?? { on_board: 0, relevant: 0, review: 0, submitted: 0 },
+    stats: data.stats ?? { on_board: 0, relevant: 0, review: 0, submitted: 0, connect_spent: 0 },
   };
 }

@@ -28,7 +28,7 @@ export interface Job {
   chips: TaxonomyChipData[];
   ownership: "mine" | "other" | "available";
   owner?: Person;
-  actionState: "not-actioned" | "submitted" | "conversation";
+  actionState: "not-actioned" | "generated" | "submitted" | "conversation";
   released?: boolean;
   releasedFrom?: string;
   budget: string;

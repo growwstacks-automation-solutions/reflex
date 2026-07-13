@@ -15,9 +15,26 @@ import { RX_DATA } from "@/lib/mock-data";
 import type { ActionLink, Job } from "@/lib/types";
 import { useAuth } from "@/lib/auth";
 import { LoginScreen } from "@/components/LoginScreen";
-import { fetchBoard, fetchReps, assignJobToRep, UnauthorizedError } from "@/lib/api";
-import type { Rep } from "@/lib/api";
+import { fetchBoard, checkJobs, fetchReps, assignJobToRep, UnauthorizedError } from "@/lib/api";
+import type { Rep, JobCheckStatus } from "@/lib/api";
 import { adaptJob } from "@/lib/adapt-job";
+
+/* Merge a /jobs/check status onto a board Job: fill the assignee from jobs.picked_by_name and, if
+   the base row wasn't already actioned, reflect the drafted/generated/submitted pipeline state. */
+function mergeCheckStatus(job: Job, s: JobCheckStatus | undefined): Job {
+  if (!s) return job;
+  const owner = s.owner
+    ? { name: s.owner, first: s.owner.split(" ")[0], bg: "var(--surface-2)", fg: "var(--text-secondary)" }
+    : job.owner;
+  let actionState = job.actionState;
+  if (actionState === "not-actioned") {
+    if (s.actioned === "submitted") actionState = "submitted";
+    else if (s.actioned === "generated") actionState = "generated";
+  }
+  // picked_by_name means someone owns it, even without a live job_assignments row.
+  const ownership = owner && job.ownership === "available" ? "other" : job.ownership;
+  return { ...job, owner, actionState, ownership };
+}
 
 /* The "Proposals" screen — drafts/submissions the rep is working. */
 function ProposalsScreen({
@@ -80,38 +97,89 @@ export default function App() {
   // Filtering/sorting/paging all run server-side, so each control change is a fresh fetch.
   useEffect(() => {
     if (!auth.token) return;
+    const token = auth.token;
     let cancelled = false;
     setBoardLoading(true);
     setBoardError(null);
-    fetchBoard(auth.token, {
+
+    // Best-effort enrichment: fill assignee (jobs.picked_by_name) + pipeline status from the
+    // already-deployed /jobs/check (the board query doesn't return picked_by_name).
+    const enrich = (jobs: Job[]) => {
+      checkJobs(jobs.map((j) => j.id))
+        .then((statuses) => {
+          if (cancelled) return;
+          setBoardJobs((prev) => prev.map((j) => mergeCheckStatus(j, statuses[j.id])));
+        })
+        .catch(() => {
+          /* enrichment is best-effort; a failure just leaves the base board */
+        });
+    };
+    const fail = (err: unknown) => {
+      if (cancelled) return;
+      if (err instanceof UnauthorizedError) {
+        auth.signOut();
+        return;
+      }
+      setBoardError(err instanceof Error ? err.message : "Failed to load the board.");
+      setBoardLoading(false);
+    };
+
+    // Submitted KPI = a client-side aggregate (no Worker filter). Submitted proposals are always
+    // the rep's OWN jobs, so we page through the "mine" scope (small — a couple of pages) and keep
+    // only submitted rows. Admins have no "mine" scope, so they scan "all" (capped).
+    if (controls.submittedView) {
+      const aggTab: "mine" | "all" = isAdmin ? "all" : "mine";
+      const AGG_SIZE = 100;
+      (async () => {
+        try {
+          const base = { relevance: controls.relevance, quality: controls.quality, from: controls.dateFrom, to: controls.dateTo, sort: controls.sort, dir: controls.dir } as const;
+          const first = await fetchBoard(token, { ...base, tab: aggTab, page: 1, pageSize: AGG_SIZE });
+          let rows = first.jobs;
+          const pages = Math.min(20, Math.ceil((first.total || 0) / AGG_SIZE)); // cap: 20 pages (~2000 jobs)
+          for (let p = 2; p <= pages && !cancelled; p++) {
+            const res = await fetchBoard(token, { ...base, tab: aggTab, page: p, pageSize: AGG_SIZE });
+            rows = rows.concat(res.jobs);
+          }
+          if (cancelled) return;
+          const submitted = rows.map(adaptJob).filter((j) => j.actionState === "submitted");
+          setBoardJobs(submitted);
+          setBoardTotal(submitted.length);
+          setBoardLoading(false); // keep the last stats so the KPI numbers don't jump
+          enrich(submitted);
+        } catch (err) {
+          fail(err);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    fetchBoard(token, {
       tab: controls.tab,
       page: controls.page,
       pageSize: PAGE_SIZE,
       relevance: controls.relevance,
       quality: controls.quality,
+      from: controls.dateFrom,
+      to: controls.dateTo,
       sort: controls.sort,
       dir: controls.dir,
     })
       .then((res) => {
         if (cancelled) return;
-        setBoardJobs(res.jobs.map(adaptJob));
+        const jobs = res.jobs.map(adaptJob);
+        setBoardJobs(jobs);
         setBoardTotal(res.total);
         setBoardStats(res.stats);
         setBoardLoading(false);
+        enrich(jobs);
       })
-      .catch((err) => {
-        if (cancelled) return;
-        if (err instanceof UnauthorizedError) {
-          auth.signOut();
-          return;
-        }
-        setBoardError(err instanceof Error ? err.message : "Failed to load the board.");
-        setBoardLoading(false);
-      });
+      .catch(fail);
     return () => {
       cancelled = true;
     };
-  }, [auth.token, reloadKey, controls]);
+  }, [auth.token, reloadKey, controls, isAdmin]);
 
   // Admins get the rep list (for the row-action assign picker). Fetched once on auth.
   useEffect(() => {
@@ -249,7 +317,7 @@ export default function App() {
 
       {/* Mobile bottom tab bar — hidden on desktop via CSS */}
       <nav className="rx-bottom-nav">
-        {NAV.map((item) => {
+        {NAV.filter((item) => !item.hidden).map((item) => {
           const active = screen === item.id || (item.id === "props" && screen === "workspace");
           return (
             <button

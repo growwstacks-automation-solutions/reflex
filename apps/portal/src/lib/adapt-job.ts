@@ -55,8 +55,11 @@ const VERDICTS = new Set<Job["relevance"]>(["relevant", "review", "irrelevant"])
 export function adaptJob(j: ApiBoardJob): Job {
   const quality = (QUALITIES.has(j.quality as Job["quality"]) ? j.quality : "medium") as Job["quality"];
   const relevance = (VERDICTS.has(j.verdict as Job["relevance"]) ? j.verdict : "review") as Job["relevance"];
+  // The Connects column only shows in the Submitted view, so prefer connect_spent (what was
+  // actually spent on the submitted proposal); fall back to the job's bid cost otherwise.
+  const rawConnects = j.connect_spent != null && j.connect_spent !== "" ? j.connect_spent : j.connects;
   const connects =
-    j.connects == null ? 0 : typeof j.connects === "number" ? j.connects : parseInt(String(j.connects), 10) || 0;
+    rawConnects == null ? 0 : typeof rawConnects === "number" ? rawConnects : parseInt(String(rawConnects), 10) || 0;
   const locParts = [j.client_city, j.client_country].filter(Boolean) as string[];
   const location = locParts.length ? locParts.join(", ") : j.client_country_code || "—";
   const payment =
@@ -65,11 +68,11 @@ export function adaptJob(j: ApiBoardJob): Job {
   // Ownership is computed server-side relative to the requester:
   //   is_mine → "mine"; is_available (no live owner) → "available"; else another rep owns it.
   const ownership: Job["ownership"] = j.is_mine ? "mine" : j.is_available ? "available" : "other";
-  // For an admin viewing another rep's job, surface who owns it.
-  const owner =
-    ownership === "other" && j.owner_name
-      ? { name: j.owner_name, first: j.owner_name.split(" ")[0], bg: "var(--surface-2)", fg: "var(--text-secondary)" }
-      : undefined;
+  // The live owner's name straight from the DB (job_assignments → users.full_name), for the
+  // Assignee column. Present whenever the job is owned (mine or another rep), null when available.
+  const owner = j.owner_name
+    ? { name: j.owner_name, first: j.owner_name.split(" ")[0], bg: "var(--surface-2)", fg: "var(--text-secondary)" }
+    : undefined;
 
   return {
     id: j.upwork_job_id,

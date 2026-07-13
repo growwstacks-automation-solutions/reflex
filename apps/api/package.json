@@ -9,10 +9,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^0.10.4"
+    "@anthropic-ai/sdk": "^0.110.0",
+    "@neondatabase/serverless": "^0.10.4",
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.2.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241004.0",
+    "@types/bcryptjs": "^2.4.6",
     "typescript": "^5.5.3",
     "wrangler": "^3.80.0"
   }
