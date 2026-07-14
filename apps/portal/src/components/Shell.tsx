@@ -5,11 +5,21 @@ import type { RXIconProps } from "@/components/icons";
 import { Avatar } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 
-export type Screen = "board" | "convos" | "props" | "report" | "assets" | "workspace";
+export type Screen = "board" | "extension" | "convos" | "props" | "report" | "assets" | "workspace";
+
+// The Extension screen's three sections — rendered as sub-items in the sidebar (expand under
+// "Extension" when it's the active screen). Shared with ExtensionScreen so the two never drift.
+export type ExtTab = "download" | "install" | "guide";
+export const EXT_TABS: { id: ExtTab; label: string; icon: (p: RXIconProps) => JSX.Element }[] = [
+  { id: "download", label: "Download", icon: RXIcons.download },
+  { id: "install", label: "How to install", icon: RXIcons.puzzle },
+  { id: "guide", label: "How to use", icon: RXIcons.spark },
+];
 
 // `hidden: true` keeps the entry (route still works) but drops it from the sidebar/mobile nav.
 export const NAV: { id: Screen; label: string; icon: (p: RXIconProps) => JSX.Element; badge?: number; hidden?: boolean }[] = [
   { id: "board", label: "Job board", icon: RXIcons.board },
+  { id: "extension", label: "Extension", icon: RXIcons.puzzle },
   { id: "convos", label: "Conversations", icon: RXIcons.chat, badge: 3, hidden: true },
   { id: "props", label: "Proposals", icon: RXIcons.proposal, hidden: true },
   { id: "report", label: "Reporting", icon: RXIcons.chart, hidden: true },
@@ -19,11 +29,15 @@ export const NAV: { id: Screen; label: string; icon: (p: RXIconProps) => JSX.Ele
 export function Sidebar({
   screen,
   setScreen,
+  extTab,
+  setExtTab,
   dark,
   setDark,
 }: {
   screen: Screen;
   setScreen: (id: Screen) => void;
+  extTab: ExtTab;
+  setExtTab: (id: ExtTab) => void;
   dark: boolean;
   setDark: React.Dispatch<React.SetStateAction<boolean>>;
 }): JSX.Element {
@@ -68,8 +82,8 @@ export function Sidebar({
         {NAV.filter((item) => !item.hidden).map((item) => {
           const active = screen === item.id || (item.id === "props" && screen === "workspace");
           return (
+            <div key={item.id}>
             <button
-              key={item.id}
               className="rx-nav-btn"
               onClick={() => setScreen(item.id)}
               style={{
@@ -118,6 +132,48 @@ export function Sidebar({
                 </span>
               ) : null}
             </button>
+
+            {/* Extension sub-nav — expands under the item while the Extension screen is open. */}
+            {item.id === "extension" && screen === "extension" ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 1, margin: "3px 0 4px" }}>
+                {EXT_TABS.map((t) => {
+                  const on = extTab === t.id;
+                  return (
+                    <button
+                      key={t.id}
+                      className="rx-nav-btn"
+                      onClick={() => setExtTab(t.id)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 9,
+                        width: "100%",
+                        padding: "7px 11px 7px 30px",
+                        borderRadius: "var(--radius-button)",
+                        border: "none",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        background: on ? "var(--indigo-50)" : "transparent",
+                        color: on ? "var(--accent-on-tint)" : "var(--text-secondary)",
+                        fontSize: 13,
+                        fontWeight: on ? 700 : 500,
+                        transition: "background var(--t-fast) var(--ease), color var(--t-fast) var(--ease)",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!on) e.currentTarget.style.background = "var(--surface-2)";
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!on) e.currentTarget.style.background = "transparent";
+                      }}
+                    >
+                      <t.icon size={15} />
+                      <span style={{ flex: 1 }}>{t.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            </div>
           );
         })}
       </nav>

@@ -1,13 +1,14 @@
 import { useEffect, useReducer, useState } from "react";
 import type { ReactNode } from "react";
 import { Sidebar, PageHeader, NAV } from "@/components/Shell";
-import type { Screen } from "@/components/Shell";
+import type { Screen, ExtTab } from "@/components/Shell";
 import { JobBoard, JobRow, DEFAULT_CONTROLS } from "@/components/JobBoard";
 import type { BoardControls, BoardStats } from "@/components/JobBoard";
 import { JobDetailPeek } from "@/components/JobDetailPeek";
 import { ProposalWorkspace } from "@/components/ProposalWorkspace";
 import type { WorkspaceStatus } from "@/components/ProposalWorkspace";
 import { Conversations, Reporting, Assets } from "@/components/OtherScreens";
+import { ExtensionScreen } from "@/components/ExtensionScreen";
 import { BellButton } from "@/components/bell";
 import { Card } from "@/components/ui";
 import { RXIcons } from "@/components/icons";
@@ -73,6 +74,7 @@ export default function App() {
   const auth = useAuth();
   const [dark, setDark] = useState(false);
   const [screen, setScreen] = useState<Screen>("board");
+  const [extTab, setExtTab] = useState<ExtTab>("download");
   const [controls, setControls] = useState<BoardControls>(DEFAULT_CONTROLS);
   const [peekJob, setPeekJob] = useState<Job | null>(null);
   const [workspace, setWorkspace] = useState<{ job: Job; status: WorkspaceStatus; regen: boolean } | null>(null);
@@ -270,7 +272,7 @@ export default function App() {
 
   return (
     <div className="rx-app-shell" style={{ display: "flex", height: "100%" }}>
-      <Sidebar screen={screen} setScreen={setNav} dark={dark} setDark={setDark} />
+      <Sidebar screen={screen} setScreen={setNav} extTab={extTab} setExtTab={setExtTab} dark={dark} setDark={setDark} />
       <main className="rx-app-main" style={{ flex: 1, minWidth: 0, height: "100%", overflow: "hidden" }}>
         {screen === "board" && (
           <JobBoard
@@ -305,6 +307,7 @@ export default function App() {
             onMarkSubmitted={onMarkSubmitted}
           />
         )}
+        {screen === "extension" && <ExtensionScreen tab={extTab} setTab={setExtTab} />}
         {screen === "convos" && <Conversations headerRight={headerRightSimple} selectedId={convoId} />}
         {screen === "props" && <ProposalsScreen headerRight={headerRightSimple} onOpenWorkspace={openWorkspace} />}
         {screen === "report" && <Reporting headerRight={headerRightSimple} />}

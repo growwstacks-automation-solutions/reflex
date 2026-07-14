@@ -80,6 +80,20 @@ async function doSignOut() {
   show("signedOut");
 }
 
+// Show/hide password toggle.
+const EYE = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>`;
+const EYE_OFF = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 7 10 7a13.2 13.2 0 0 1-2.16 2.94M6.06 6.06A13.2 13.2 0 0 0 2 11s3.5 7 10 7a9.1 9.1 0 0 0 3.94-.94"/><path d="M9.9 9.9a3 3 0 0 0 4.24 4.24"/><path d="M2 2l20 20"/></svg>`;
+const pwToggle = $("pwToggle");
+if (pwToggle) {
+  pwToggle.addEventListener("click", () => {
+    const show = pwEl.type === "password";
+    pwEl.type = show ? "text" : "password";
+    pwToggle.innerHTML = show ? EYE_OFF : EYE;
+    pwToggle.setAttribute("aria-label", show ? "Hide password" : "Show password");
+    pwToggle.setAttribute("title", show ? "Hide password" : "Show password");
+  });
+}
+
 signinBtn.addEventListener("click", doSignIn);
 $("signout").addEventListener("click", doSignOut);
 [emailEl, pwEl].forEach((el) =>

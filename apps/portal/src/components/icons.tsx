@@ -71,6 +71,8 @@ export const RXIcons = {
   link: (p) => <RXIcon {...p} paths={<><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5"/></>} />,
   dot: (p) => <RXIcon {...p} d="M12 12h.01" sw={6} />,
   spark: (p) => <RXIcon {...p} d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4L12 3z" />,
+  puzzle: (p) => <RXIcon {...p} d="M4 7h3.5a1.5 1.5 0 1 1 3 0H14a1 1 0 0 1 1 1v3.5a1.5 1.5 0 1 0 0 3V18a1 1 0 0 1-1 1h-3.5a1.5 1.5 0 1 0-3 0H4a1 1 0 0 1-1-1v-3.5a1.5 1.5 0 1 0 0-3V8a1 1 0 0 1 1-1z" />,
+  download: (p) => <RXIcon {...p} paths={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 3v13M7 11l5 5 5-5"/></>} />,
 } satisfies Record<string, (p: RXIconProps) => JSX.Element>;
 
 export type RXIconName = keyof typeof RXIcons;

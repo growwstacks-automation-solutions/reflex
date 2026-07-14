@@ -4,10 +4,25 @@ import type { CSSProperties, KeyboardEvent } from "react";
 import { Button } from "@/components/ds";
 import { useAuth } from "@/lib/auth";
 
+const Eye = ({ size = 17 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+const EyeOff = ({ size = 17 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 7 10 7a13.2 13.2 0 0 1-2.16 2.94M6.06 6.06A13.2 13.2 0 0 0 2 11s3.5 7 10 7a9.1 9.1 0 0 0 3.94-.94" />
+    <path d="M9.9 9.9a3 3 0 0 0 4.24 4.24" />
+    <path d="M2 2l20 20" />
+  </svg>
+);
+
 export function LoginScreen(): JSX.Element {
   const { signIn } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -112,16 +127,41 @@ export function LoginScreen(): JSX.Element {
         </div>
         <div style={{ marginBottom: 18 }}>
           <label style={label} htmlFor="rx-password">Password</label>
-          <input
-            id="rx-password"
-            type="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={onKeyDown}
-            placeholder="••••••••"
-            style={input}
-          />
+          <div style={{ position: "relative" }}>
+            <input
+              id="rx-password"
+              type={showPw ? "text" : "password"}
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="••••••••"
+              style={{ ...input, paddingRight: 42 }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPw((s) => !s)}
+              aria-label={showPw ? "Hide password" : "Show password"}
+              title={showPw ? "Hide password" : "Show password"}
+              style={{
+                position: "absolute",
+                top: 0,
+                right: 0,
+                height: "100%",
+                width: 40,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "none",
+                background: "transparent",
+                color: "var(--text-tertiary)",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </div>
         </div>
 
         {error && (

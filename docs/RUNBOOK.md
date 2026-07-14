@@ -80,6 +80,29 @@ Run the two servers in separate terminals:
 - **Extension:** load `apps/extension` unpacked via `chrome://extensions` (Developer mode →
   Load unpacked). Reload from that page after edits.
 
+### Package the extension for the portal Download tab
+
+The portal's **Extension** screen serves the whole extension as a `.zip` from the portal's own
+origin (`apps/portal/public/reflex-extension.zip` → shipped verbatim to `dist/` by Vite →
+`https://reflex.manish-98d.workers.dev/reflex-extension.zip`). Repackage it whenever the
+extension changes:
+
+```powershell
+# Windows / PowerShell — from repo root
+$src = "apps\extension"; $out = "apps\portal\public\reflex-extension.zip"
+if (Test-Path $out) { Remove-Item $out -Force }
+Compress-Archive -Path (Join-Path $src '*') -DestinationPath $out -Force
+```
+```bash
+# Mac / Linux — from repo root (zip the folder CONTENTS so manifest.json is at the zip root)
+rm -f apps/portal/public/reflex-extension.zip
+( cd apps/extension && zip -r ../portal/public/reflex-extension.zip . )
+```
+
+Then bump `EXT_VERSION` in `apps/portal/src/components/ExtensionScreen.tsx` to match
+`apps/extension/manifest.json` `"version"`, and rebuild the portal (`npm run build`) so `dist/`
+picks up the new zip.
+
 Smoke-test the live loop: open http://localhost:3000 → log in as a rep → the board shows that
 rep's real jobs from Neon; click a row → detail panel shows description + client snapshot +
 "Open on Upwork". (Rep credentials come from Manish — never pasted into chat.)

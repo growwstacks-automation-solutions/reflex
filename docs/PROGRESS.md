@@ -8,6 +8,42 @@ to look to see where things stand. Newest entry at the top.
 
 ## Session log
 
+### 2026-07-14 — Portal: Extension screen (download + install + usage guide)
+- **What:** new **Extension** item in the sidebar (right under Job board). Clicking it **expands three
+  sub-nav items in the sidebar** — **Download** (button that downloads the latest packaged extension
+  `.zip`), **How to install** (load-unpacked steps for Chrome/Edge + how to update), and **How to use**
+  (every feature + start-to-finish "apply to a job" walkthrough). Written for non-technical reps: one
+  action per step, a real screenshot on every step. Gives reps a self-serve way to get the extension
+  running without Manish sending them a file each time.
+- **Sidebar sub-nav:** `ExtTab` state lives in App.tsx, passed to `Sidebar` (renders the 3 items,
+  indented, only while the Extension screen is active) and to `ExtensionScreen` (renders just the active
+  section — no in-page tab bar). `EXT_TABS` exported from Shell.tsx so the two never drift.
+- **Screenshots:** 11 real screenshots in `apps/portal/public/ext-guide/` (`01-unzip` … `06-upwork-open`,
+  `use-01-panel` … `use-04-reply`). The `Shot` component renders `/ext-guide/<name>.png` and falls back
+  to a labelled "add screenshot" placeholder if a file is missing.
+- **Install flow (matches the real UI):** unzip → puzzle menu → Manage extensions → Developer mode +
+  Load unpacked → pick the `extension` folder → pin → open Upwork & log in.
+- **How-to-use note:** some jobs won't show **Add to Reflex** because Reflex already polls them from
+  Upwork into the DB (relevance/fit already known) — called out explicitly so reps aren't confused.
+- **Did (portal, additive only):**
+  - `apps/portal/public/reflex-extension.zip` — the packaged `apps/extension/` (zipped contents, so
+    `manifest.json` is at the zip root). Vite copies `public/` → `dist/`, so it's served same-origin at
+    `/reflex-extension.zip` (no backend, no secret). **First use of a `public/` dir in the portal.**
+  - `components/ExtensionScreen.tsx` — the three-tab screen (static content; download is a plain
+    `<a href="/reflex-extension.zip" download>`). `EXT_VERSION` constant shown in the UI (0.1.0, mirrors
+    the manifest).
+  - `components/Shell.tsx` — added `"extension"` to the `Screen` union + a visible NAV entry
+    (`RXIcons.puzzle`) between board and the hidden entries. Mobile bottom-nav picks it up automatically.
+  - `components/icons.tsx` — added `puzzle` + `download` icons.
+  - `App.tsx` — render `<ExtensionScreen>` when `screen === "extension"`.
+- **Verified:** portal `tsc --noEmit` + `vite build` green; confirmed `dist/reflex-extension.zip`
+  (76.5 KB) is emitted by the build. **Not yet eyeballed in the browser / on the live Worker.**
+- **Next:** Manish rebuilds + deploys the portal; click the Download tab on
+  `reflex.manish-98d.workers.dev` and confirm the zip downloads and loads unpacked. Repackage the zip +
+  bump `EXT_VERSION` whenever the extension changes (see RUNBOOK "Package the extension").
+- **Notes:** Content is descriptive only — no Upwork interaction, no API calls, reactive-only contract
+  untouched. Extension is deliberately NOT on the Chrome Web Store, so load-unpacked is the install path.
+
 ### 2026-07-07 — Fix: board.ts broke at runtime on @neondatabase/serverless 0.10.4 (`sql.query` → `sql(text,params)`)
 - **Problem:** `board.ts` used `sql.query(text, params)` in 3 places, but the installed neon **0.10.4**
   http client has **no `.query` method** (it's on Pool/Client only) — `typeof sql.query === "undefined"`.

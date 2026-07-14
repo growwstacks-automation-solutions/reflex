@@ -35,6 +35,14 @@ body{width:344px;color:var(--text)}
 .field::placeholder{color:var(--text-3)}
 .field:focus{outline:none;border-color:var(--indigo);box-shadow:0 0 0 3px var(--indigo-tint)}
 
+/* password field + show/hide eye toggle */
+.pwwrap{position:relative;margin-bottom:13px}
+.pwwrap .field{margin-bottom:0;padding-right:40px}
+.pwtoggle{position:absolute;top:0;right:0;height:100%;width:38px;display:flex;
+  align-items:center;justify-content:center;border:none;background:transparent;
+  color:var(--text-3);cursor:pointer;padding:0}
+.pwtoggle:hover{color:var(--text)}
+
 /* ---- buttons ---- */
 .btn{font-size:13.5px;font-weight:600;padding:12px;border-radius:10px;cursor:pointer;
   border:none;width:100%;transition:background .12s,transform .04s,box-shadow .12s}
