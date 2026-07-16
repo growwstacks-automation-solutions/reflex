@@ -9,6 +9,7 @@ import { ProposalWorkspace } from "@/components/ProposalWorkspace";
 import type { WorkspaceStatus } from "@/components/ProposalWorkspace";
 import { Conversations, Reporting, Assets } from "@/components/OtherScreens";
 import { ExtensionScreen } from "@/components/ExtensionScreen";
+import { PortfolioScreen } from "@/components/PortfolioScreen";
 import { BellButton } from "@/components/bell";
 import { Card } from "@/components/ui";
 import { RXIcons } from "@/components/icons";
@@ -308,6 +309,7 @@ export default function App() {
           />
         )}
         {screen === "extension" && <ExtensionScreen tab={extTab} setTab={setExtTab} />}
+        {screen === "portfolio" && <PortfolioScreen />}
         {screen === "convos" && <Conversations headerRight={headerRightSimple} selectedId={convoId} />}
         {screen === "props" && <ProposalsScreen headerRight={headerRightSimple} onOpenWorkspace={openWorkspace} />}
         {screen === "report" && <Reporting headerRight={headerRightSimple} />}

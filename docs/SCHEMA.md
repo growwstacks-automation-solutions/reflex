@@ -106,6 +106,25 @@ shows "Last synced" even when a sync finds no new messages.
 **`connects_ledger`** — append-only. `id`, `user_id`, `job_id`, `delta` (int; negative =
 spent), `note`, `created_at`. "Connects left" is a computed/cached balance.
 
+**`portfolios`** (migration `0007`; **already live in Neon**, 74 rows) — the portfolio index as data
+(was a hardcoded array in `apps/api/src/portfolio.ts`). **`id` is an INTEGER serial** (`portfolios_id_seq`,
+NOT a uuid — verified against information_schema), `portfolio_title` (text, not null), `tools_used`
+(text, not null), `page_number` (int, not null), `position` (int, not null), `created_at`, `updated_at`
+(timestamptz, nullable). Index `portfolios_order_idx` on `(page_number, position)`. **The source of
+truth for the prompt's `PORTFOLIO_INDEX`** — rows are rendered (ordered `page_number ASC, position ASC`)
+into the exact string format `N. portfolio_title — tools_used — page {page_number}, position {position}`
+by `loadPortfolioIndex()` in `portfolio.ts`. `/generate` rebuilds the in-memory index from this table on
+each run, and the portal's **Portfolio** tab (CRUD via `POST /portfolios[/update|/delete]`, id = integer)
+rebuilds it after every change — so generation always uses the latest list with no restart/deploy.
+**Paging model:** the list is one ordered sequence (page_number ASC, position ASC); **pages are fixed
+chunks of 10** (position 1–10), mirroring Upwork's profile-highlights pages. Every mutation
+re-sequences the whole table into chunks of 10 via `resequence()` (one `UPDATE … FROM VALUES`; there is
+no unique index on (page_number, position), only the PK on id): create inserts at a slot and cascades
+overflow to the next page, delete compacts, and **`POST /portfolios/reorder` `{ order: id[] }`** (drag-drop)
+rewrites the order. **Write access is limited to editors** (`EDITORS` = first-name allowlist `manish`,
+`sarthak` in `portfolios.ts`); everyone else is view-only (`GET /portfolios` is open to any signed-in
+user). The matching/prompt logic is unchanged; only the *source* of the index moved from code to this table.
+
 **`embeddings`** — pgvector. `id`, `source_kind` (`proposal`|`portfolio`), `source_id`,
 `content`, `embedding` (`vector(1536)` — **change dim if you change the embedder**),
 `created_at`. ivfflat index for cosine similarity.

@@ -15,6 +15,8 @@ import { proposalDraft } from "./proposalDraft";
 import { jobSubmitted } from "./submitted";
 import { fillLoomPlaceholders } from "./looms";
 import { syncMessages, suggestReply } from "./messages";
+import { loadPortfolioIndex } from "./portfolio";
+import { listPortfolios, createPortfolio, updatePortfolio, deletePortfolio, reorderPortfolios } from "./portfolios";
 
 export interface Env {
   // Secrets (NOT in wrangler.toml): .dev.vars locally, `wrangler secret put` in prod.
@@ -57,6 +59,11 @@ export default {
     if (route === "POST /jobs/client-name") return clientNameHandler(req, env);
     if (route === "POST /messages/sync") return syncMessages(req, env);
     if (route === "POST /messages/suggest") return suggestReply(req, env);
+    if (route === "GET /portfolios") return listPortfolios(req, env);
+    if (route === "POST /portfolios") return createPortfolio(req, env);
+    if (route === "POST /portfolios/update") return updatePortfolio(req, env);
+    if (route === "POST /portfolios/delete") return deletePortfolio(req, env);
+    if (route === "POST /portfolios/reorder") return reorderPortfolios(req, env);
     return json({ error: "Not found." }, 404);
   },
 };
@@ -103,6 +110,12 @@ async function generateHandler(req: Request, env: Env): Promise<Response> {
         return json({ error: "Server misconfigured: DATABASE_URL is not set (real mode)." }, 500);
       }
 
+      // 0. Rebuild PORTFOLIO_INDEX from the `portfolios` table so the prompt always uses the
+      //    latest list (managed from the portal). Non-fatal — on failure the last-loaded value
+      //    (or the hardcoded fallback) stands, so generation never breaks.
+      await loadPortfolioIndex(env.DATABASE_URL).catch((err) =>
+        console.warn("[portfolio] load failed, using existing index:", err instanceof Error ? err.message : String(err)),
+      );
       // 1. Match work samples first (upserts jobs.looms / jobs.image_links). Non-fatal.
       await runAssetMatch(env.DATABASE_URL, body.job_id);
       // 2. Fetch the job (now reads the freshly-matched looms/image_links) — unchanged.
@@ -158,6 +171,9 @@ async function generateHandler(req: Request, env: Env): Promise<Response> {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Log the full error server-side so a 500 is diagnosable in the wrangler log (the client
+    // only sees the message string). Includes the stack when available.
+    console.error("[generate] failed:", err instanceof Error ? err.stack || err.message : String(err));
     return json({ error: `Generation failed: ${message}` }, 500);
   }
 }

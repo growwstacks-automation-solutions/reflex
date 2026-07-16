@@ -73,6 +73,10 @@ export const RXIcons = {
   spark: (p) => <RXIcon {...p} d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4L12 3z" />,
   puzzle: (p) => <RXIcon {...p} d="M4 7h3.5a1.5 1.5 0 1 1 3 0H14a1 1 0 0 1 1 1v3.5a1.5 1.5 0 1 0 0 3V18a1 1 0 0 1-1 1h-3.5a1.5 1.5 0 1 0-3 0H4a1 1 0 0 1-1-1v-3.5a1.5 1.5 0 1 0 0-3V8a1 1 0 0 1 1-1z" />,
   download: (p) => <RXIcon {...p} paths={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M12 3v13M7 11l5 5 5-5"/></>} />,
+  briefcase: (p) => <RXIcon {...p} paths={<><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><path d="M2 13h20"/></>} />,
+  trash: (p) => <RXIcon {...p} paths={<><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></>} />,
+  edit: (p) => <RXIcon {...p} paths={<><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></>} />,
+  grip: (p) => <RXIcon {...p} sw={2} paths={<><circle cx="9" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="18" r="1"/></>} />,
 } satisfies Record<string, (p: RXIconProps) => JSX.Element>;
 
 export type RXIconName = keyof typeof RXIcons;

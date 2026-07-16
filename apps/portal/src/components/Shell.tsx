@@ -5,7 +5,7 @@ import type { RXIconProps } from "@/components/icons";
 import { Avatar } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 
-export type Screen = "board" | "extension" | "convos" | "props" | "report" | "assets" | "workspace";
+export type Screen = "board" | "extension" | "portfolio" | "convos" | "props" | "report" | "assets" | "workspace";
 
 // The Extension screen's three sections — rendered as sub-items in the sidebar (expand under
 // "Extension" when it's the active screen). Shared with ExtensionScreen so the two never drift.
@@ -20,6 +20,7 @@ export const EXT_TABS: { id: ExtTab; label: string; icon: (p: RXIconProps) => JS
 export const NAV: { id: Screen; label: string; icon: (p: RXIconProps) => JSX.Element; badge?: number; hidden?: boolean }[] = [
   { id: "board", label: "Job board", icon: RXIcons.board },
   { id: "extension", label: "Extension", icon: RXIcons.puzzle },
+  { id: "portfolio", label: "Portfolio", icon: RXIcons.briefcase },
   { id: "convos", label: "Conversations", icon: RXIcons.chat, badge: 3, hidden: true },
   { id: "props", label: "Proposals", icon: RXIcons.proposal, hidden: true },
   { id: "report", label: "Reporting", icon: RXIcons.chart, hidden: true },

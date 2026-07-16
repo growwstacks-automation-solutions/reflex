@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { json } from "./http";
+import { byPortfolioOrder } from "./generate";
 
 /**
  * GET-the-draft for ONE job — used by the extension to RESTORE a previously generated proposal
@@ -121,7 +122,10 @@ export async function proposalDraft(req: Request, env: { DATABASE_URL: string })
           position: m ? Number(m[2]) : null,
           why: "",
         };
-      });
+      })
+      // Ascending portfolio order (page, then position) — same as /generate, so a restored draft
+      // shows the suggested points in the same easy-to-scan sequence. (proposal_assets has no order.)
+      .sort(byPortfolioOrder);
 
     let image_links: string[];
     let looms: string[];

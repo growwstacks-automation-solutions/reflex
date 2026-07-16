@@ -1,20 +1,15 @@
-// Sample portfolio index for development. Replace with the real 74-item index when wired
-// (sourced from the ImageKit/portfolio DB and/or a one-time human-paced walk of the Upwork
-// "profile highlights" popup to record page/position) — see docs/reflex-ai-generation-spec.md.
+// Portfolio index injected into the prompt's CACHED block. It is now sourced from the
+// `portfolios` table (Neon) at generation time — the hardcoded list below is the FALLBACK,
+// used only until the DB load succeeds (or if the table is empty/unreachable), so generation
+// never breaks. The public export `PORTFOLIO_INDEX` is unchanged in shape — a newline-joined
+// string in the exact format `N. Title — Tools — page P, position Q` — so every consumer
+// (prompt.ts, etc.) keeps working with no change; only the *source* moved to the DB.
 //
-// One line per item: `N. Title — skills / one-line — page P, position Q`.
-// This is injected into the CACHED block, so it must stay byte-stable across requests for
-// prompt caching to pay off. (Until it grows past ~4096 tokens it won't actually cache on
-// Haiku 4.5 — that's expected; the cost math still works, there's just no cache discount yet.)
-// export const PORTFOLIO_INDEX = [
-//   "1. AI Gift Recommendation Engine — Claude-powered matching API (Node) — page 1, position 1",
-//   "2. Advanced n8n Recruitment Process Automation — n8n + Gmail + Sheets pipeline — page 4, position 2",
-//   "3. Real-time Support Chatbot on Claude — streaming + RAG over docs — page 2, position 1",
-//   "4. Shopify Product Sync Pipeline — scraping + ETL + webhooks — page 3, position 2",
-//   "5. Slack ↔ Notion Ops Automation — Make + Slack + Notion API — page 5, position 1",
-//   "6. CRM Auto-fill Chrome Extension — MV3, DOM, content scripts — page 6, position 2",
-// ].join("\n");
-export const PORTFOLIO_INDEX = [
+// `export let` (not const) so loadPortfolioIndex() can repopulate it. ESM exports are LIVE
+// BINDINGS, so importers always read the current value — no consumer code needs to change.
+import { neon } from "@neondatabase/serverless";
+
+const DEFAULT_PORTFOLIO_INDEX = [
   "1. AI Gift Recommendation Engine — Claude + FastAPI + Prompt Engineering — page 1, position 1",
   "2. Medical-Legal Document Automation with the Anthropic API — Claude + n8n + Airtable — page 1, position 2",
   "3. CRM + PM Platform That Self-Supervises via Claude SDK — Claude + Supabase + React — page 1, position 3",
@@ -90,3 +85,44 @@ export const PORTFOLIO_INDEX = [
   "73. Personalized Nutrition Plan Automation - plans your client's Nutrition — Make.com + Zapier + Jotform + Google Docs — page 8, position 3",
   "74. Website Screenshot Management with Seamless Automation - URLBOX.IO — URLBOX.IO + Google Sheets — page 8, position 4",
 ].join("\n");
+
+/** The live index consumed by the prompt. Starts as the fallback; loadPortfolioIndex() replaces it. */
+export let PORTFOLIO_INDEX = DEFAULT_PORTFOLIO_INDEX;
+
+/** One row of the `portfolios` table (source of truth for the index). */
+export interface PortfolioRow {
+  portfolio_title: string;
+  tools_used: string;
+  page_number: number;
+  position: number;
+}
+
+/**
+ * Render DB rows into the existing index string format — one line per item,
+ * `N. Title — Tools — page P, position Q`. `N` is the 1-based order (rows arrive
+ * sorted by page_number, position), reproducing the original hardcoded numbering exactly.
+ */
+export function formatPortfolioIndex(rows: PortfolioRow[]): string {
+  return rows
+    .map(
+      (r, i) =>
+        `${i + 1}. ${r.portfolio_title} — ${r.tools_used} — page ${Number(r.page_number)}, position ${Number(r.position)}`,
+    )
+    .join("\n");
+}
+
+/**
+ * Load every portfolio from Neon (ordered page_number ASC, position ASC) and rebuild the
+ * in-memory PORTFOLIO_INDEX. Falls back to the hardcoded default when the table is empty, so
+ * the prompt is never blank. Throws on a DB error — callers wrap this and keep the last value.
+ */
+export async function loadPortfolioIndex(databaseUrl: string): Promise<string> {
+  const sql = neon(databaseUrl);
+  const rows = (await sql`
+    select portfolio_title, tools_used, page_number, position
+    from portfolios
+    order by page_number, position
+  `) as PortfolioRow[];
+  PORTFOLIO_INDEX = rows.length > 0 ? formatPortfolioIndex(rows) : DEFAULT_PORTFOLIO_INDEX;
+  return PORTFOLIO_INDEX;
+}

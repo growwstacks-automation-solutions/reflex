@@ -9,15 +9,23 @@ import { neon } from "@neondatabase/serverless";
 //                    major_apps, secondary_apps, screenshot_urls
 //
 // Destination (migrations/0004_job_work_samples.sql):
-//   jobs.looms       text[]  -- "Title — new_link"
-//   jobs.image_links text[]  -- flat screenshot URLs (max 4)
+//   jobs.looms       text[]  -- "Title — new_link" (up to LOOM_CAP)
+//   jobs.image_links text[]  -- flat screenshot URLs (up to IMAGE_CAP)
 //
 // Unlike the n8n version this scores ONE job (the one being processed),
 // reads the two source tables directly (no _source split), and ends by
 // upserting the matched arrays onto that job's row. The scoring logic
 // (tokenize / scoreText / stopwords / platformBoosts) is kept identical
 // so matches line up with what the n8n workflow produces.
+//
+// Caps: images pull from EVERY matching knowledge_base project (every project
+// that scored on a job tool — e.g. n8n), de-duplicated, up to IMAGE_CAP; looms
+// take the top LOOM_CAP matches.
 // ============================================================
+
+// How many work samples to attach per job.
+const LOOM_CAP = 5; // up to 5 Loom walkthroughs
+const IMAGE_CAP = 10; // up to 10 screenshot images
 
 export interface MatchResult {
   matched: boolean; // false when the job row could not be found
@@ -98,8 +106,9 @@ function appsToText(v: unknown): string {
  *
  * Reads the job's own keyword fields (title/description/skills/reason) from the
  * jobs table, scores the loom_videos + knowledge_base reference tables against
- * them, keeps the top 2 of each, and writes the formatted arrays back to the
- * job row. Returns what it wrote (matched=false if the job row is missing).
+ * them, keeps up to LOOM_CAP looms and up to IMAGE_CAP images (screenshots from
+ * every matching project), and writes the formatted arrays back to the job row.
+ * Returns what it wrote (matched=false if the job row is missing).
  *
  * `jobId` is jobs.id (uuid) OR upwork_job_id — either resolves the row.
  */
@@ -168,9 +177,11 @@ export async function matchAssets(databaseUrl: string, jobId: string): Promise<M
     .map((loom) => ({ record: loom, score: scoreText(loom.title ?? "", leadKeywords) }))
     .sort((a, b) => b.score - a.score);
 
-  // -- top 2 each (score > 0) --
-  const topKB = scoredKB.filter((x) => x.score > 0).slice(0, 2).map((x) => x.record);
-  const topLooms = scoredLooms.filter((x) => x.score > 0).slice(0, 2).map((x) => x.record);
+  // -- KB: ALL matching projects (score > 0), highest score first — their screenshots feed the
+  //    images, so every project using a matched tool (e.g. n8n) contributes up to the image cap. --
+  const topKB = scoredKB.filter((x) => x.score > 0).map((x) => x.record);
+  // -- looms: up to LOOM_CAP best matches (score > 0). --
+  const topLooms = scoredLooms.filter((x) => x.score > 0).slice(0, LOOM_CAP).map((x) => x.record);
 
   // -- looms column: "Title — new_link" --
   const looms = topLooms
@@ -181,8 +192,19 @@ export async function matchAssets(databaseUrl: string, jobId: string): Promise<M
     })
     .filter(Boolean);
 
-  // -- image_links column: flat screenshot URLs from the top KB rows, max 4 --
-  const image_links = topKB.flatMap((kb) => toArrayText(kb.screenshot_urls)).slice(0, 10);
+  // -- image_links column: screenshots from EVERY matching KB project, de-duplicated, capped at
+  //    IMAGE_CAP (highest-scoring projects first — so ~8-10 relevant images, not just the top 2). --
+  const image_links: string[] = [];
+  const seenImg = new Set<string>();
+  for (const kb of topKB) {
+    for (const url of toArrayText(kb.screenshot_urls)) {
+      if (seenImg.has(url)) continue;
+      seenImg.add(url);
+      image_links.push(url);
+      if (image_links.length >= IMAGE_CAP) break;
+    }
+    if (image_links.length >= IMAGE_CAP) break;
+  }
 
   // -- upsert onto the job row (matches by uuid or upwork id) --
   await sql`

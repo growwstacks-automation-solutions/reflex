@@ -8,6 +8,105 @@ to look to see where things stand. Newest entry at the top.
 
 ## Session log
 
+### 2026-07-15 — Proposal suggested points now shown in ascending portfolio order
+- **What:** the "Suggested Proposal points" (portfolio_recommendations) were shown in the model's
+  relevance order (arbitrary page/position). Now sorted **ascending by page, then position** so the rep
+  scans them in the same sequence as their portfolio — easier to locate each item.
+- **Did:** added `byPortfolioOrder(a,b)` in `generate.ts` (page then position asc; missing values last);
+  `generate.ts` sorts the parsed recs before returning; `proposalDraft.ts` sorts the restored recs too
+  (proposal_assets has no stored order), so live + restored drafts match. Extension/portal render in the
+  received order, so no client change needed.
+- **Verified:** API `tsc` + `wrangler dry-run` green.
+- **Note:** this orders the portfolio *suggested points*. Work-sample images/looms are still ordered by
+  match score (most-relevant first) — say if those should be ascending too.
+
+### 2026-07-15 — Asset matcher: more work samples per proposal (images → up to 10, looms → up to 5)
+- **What:** proposals attached only ~1-3 images + 2 looms. Raised the caps in `matchAssets.ts`:
+  `IMAGE_CAP = 10`, `LOOM_CAP = 5`. Images now pull screenshots from **every matching knowledge_base
+  project** (any project scoring on a job tool, e.g. n8n), de-duplicated, highest-score first, up to 10
+  (was: only the top 2 KB rows → 1-3 images). Looms take the top 5 (was 2). Scoring is unchanged.
+- **Verified (live data, job "N8N Automation Workflow Setup"):** new logic → **10 images, 5 looms**
+  (477 KB projects match, top-scoring fill the 10; 38 looms match, top 5 taken). API `tsc` +
+  `wrangler dry-run` green.
+- **⚠️ Already-matched jobs are SKIPPED (cached):** `matchAssets` returns early when a job's
+  `looms`/`image_links` are already non-null, so existing jobs keep their old 1-3 images until their
+  cache is cleared. To apply the new caps to already-matched jobs, clear the cache so the next Generate
+  re-matches (Manish, owner creds): `update jobs set looms = null, image_links = null;` (all jobs) or
+  `... where upwork_job_id = '<id>'` (one job). New/unmatched jobs get the new caps automatically.
+- **Next:** restart `wrangler dev` / redeploy the Worker; clear the cache for a test job; Generate and
+  confirm ~10 images + up to 5 looms in the Work Samples picker.
+
+### 2026-07-15 — Portfolio tab: page tabs (10/page) + drag-drop ordering + cascade + polish
+- **What (refinements on the same feature):** the Portfolio tab is now organized like Upwork's
+  profile-highlights pages. Follow-ups requested after the first eyeball:
+  - **Global # column** (1–74) as the first data column (order across all pages).
+  - **Removed** the "synced 2 min ago" text + bell/notifications from the Portfolio header (the tab
+    no longer passes `headerRight`). Other screens are unchanged.
+  - **Page tabs, 10 rows each** — pages are fixed chunks of 10; a tab bar switches between them.
+  - **Drag-and-drop** to reorder within the active page (native HTML5 DnD, no new deps) → persisted
+    via new `POST /portfolios/reorder` `{ order: id[] }`.
+  - **Cascade** on add: inserting into a full page pushes its last item to the top of the next page,
+    cascading down; **delete compacts** (following items pull up). Enforced server-side.
+- **Did (API, `portfolios.ts`):** introduced a single ordered model — `resequence(ids)` rewrites the
+  whole table's `(page_number, position)` as chunks of 10 in ONE `UPDATE … FROM (VALUES …)` statement
+  (safe: verified no unique index on (page_number, position), only the PK on id; ran a live swap+revert
+  to confirm). `create` inserts at the page/position slot then re-sequences (cascade); `update` also
+  moves the row if its page/position changed; `delete` compacts; new `reorderPortfolios` re-sequences
+  to the client's order (appends any omitted ids defensively). Uses the neon `sql(text, params)`
+  ordinary-call form (same as board.ts). New route `POST /portfolios/reorder` (editor-gated).
+- **Did (portal, `PortfolioScreen.tsx`):** page tab bar (count badge per page), `#` global column,
+  Position now = slot within the page (1–10), drag handle + row DnD (editors only, optimistic update
+  then reconcile with the server list), add/edit form defaults page = active tab and validates
+  Position 1–10. Removed the `headerRight` prop. `api.ts` — `reorderPortfolios`. `icons.tsx` — `grip`.
+- **Did (API, `index.ts`):** added a `console.error("[generate] failed:", …)` in the `/generate` catch
+  so a 500 is diagnosable in the wrangler log (was silent — surfaced during the earlier 500 debug,
+  which turned out to be a transient Anthropic auth blip / the rotated API key, NOT the portfolio).
+- **Verified:** API `tsc` + `wrangler dry-run` green; portal `tsc` + `vite build` green; live DB proof
+  that the reorder UPDATE runs and round-trips (swap→revert). **Not yet eyeballed in the browser.**
+- **Notes:** DnD reorders WITHIN a page; to move an item across pages, edit it and change its Page (the
+  cascade handles the shuffle). Cross-page drag wasn't built. `PER_PAGE = 10` in both `portfolios.ts`
+  and `PortfolioScreen.tsx`. Bell removed on Portfolio only — say the word to remove it app-wide.
+
+### 2026-07-15 — Portfolio index is now DB-backed + a Portfolio management tab (CRUD, editor-gated)
+- **What:** the proposal `PORTFOLIO_INDEX` (74 hardcoded strings) now comes from the **`portfolios`**
+  table in Neon (**already live, 74 rows** — verified directly), managed from a new **Portfolio** tab in
+  the portal (sidebar, below Extension). **Manish + Sarthak** can add/edit/delete; everyone else is
+  **view-only**. Every change persists to Neon and rebuilds the in-memory index so generation uses the
+  latest list — **no restart/deploy**. **100% backward compatible:** the matching/prompt logic and every
+  consumer of `PORTFOLIO_INDEX` are untouched — only the *source* of the index moved from code to the DB.
+- **⚠️ Verified the real table against Neon** (read-only, credential never printed): table is `portfolios`
+  (NOT `sync_portfolio` — an earlier rename was reverted), **`id` is an INTEGER serial** (`portfolios_id_seq`,
+  not uuid), columns `id, portfolio_title, tools_used, page_number, position, created_at, updated_at`, and it
+  already holds the 74 rows (ids 1..74, matching the old hardcoded list). All code treats `id` as an integer.
+- **Did (DB, migration `0007_portfolios.sql`):** `create table if not exists portfolios` matching the live
+  schema (id integer identity pk, …) + `portfolios_order_idx`. **Idempotent + non-destructive** — no-op
+  against the live table; seeds the 74 items **only if empty** (for a fresh DB). Mirrored in SCHEMA.md.
+  **Manish to apply `0007`** (it won't change the live table — it's for parity/fresh installs).
+- **Did (API):** `portfolio.ts` — kept the hardcoded list as `DEFAULT_PORTFOLIO_INDEX` (fallback);
+  `PORTFOLIO_INDEX` is now `export let` (ESM **live binding**, so `prompt.ts` reads the latest value
+  with zero changes) + `loadPortfolioIndex(dbUrl)` (SELECT from `portfolios` ordered by page/position →
+  the same `N. Title — Tools — page P, position Q` format; falls back to default on empty). New
+  `portfolios.ts` (`GET /portfolios` open to any signed-in user; `POST /portfolios[/update|/delete]`
+  gated to `EDITORS` = first-name allowlist `['manish','sarthak']` checked against `users.full_name`;
+  validated; **id parsed as integer**; each mutation calls `loadPortfolioIndex`). `index.ts` — routed
+  the four + calls `loadPortfolioIndex` at the top of real-mode `/generate` (non-fatal; fallback stands).
+- **Did (portal):** `api.ts` — `Portfolio` (id: **number**)/`PortfolioInput` + `fetchPortfolios`/`create`/
+  `update`/`deletePortfolio` (→ `/portfolios`). New `PortfolioScreen.tsx` — table (Title/Tools/Page/
+  Position/Actions) + "Add a new portfolio" modal form (client-side validation mirroring the API) + edit +
+  delete-confirm; loading/error/empty states. **Add/Edit/Delete hidden for non-editors** (same first-name
+  allowlist; the API is the real gate). `Shell.tsx` — `"portfolio"` in the `Screen` union + NAV entry below
+  Extension (`briefcase` icon). `icons.tsx` — `briefcase`/`edit`/`trash`. `App.tsx` — render it.
+- **Verified:** API `tsc` + `wrangler dry-run` green; portal `tsc` + `vite build` green; live table schema
+  + 74 rows confirmed against Neon. **Not yet live-eyeballed in the browser** — needs the Worker running.
+  Add/edit/delete a row (as Manish/Sarthak) and confirm the next generate uses it; confirm a non-editor
+  sees no write controls + gets a 403 if they call the API directly.
+- **Notes:** Editors are matched by the first word of `users.full_name` (case-insensitive) — if Sarthak's
+  row isn't "Sarthak …" or two people share an editor first name, adjust `EDITORS` in `portfolios.ts` (API,
+  the real gate) + `PortfolioScreen.tsx` (UI). Kept the leading `N.` numbering to stay byte-identical to the
+  old index. (User had asked to rename the table to `sync_portfolio`, but the live table is `portfolios`
+  with the real data, so the code targets `portfolios`; renaming the table would be a separate deliberate
+  `ALTER TABLE … RENAME` migration.)
+
 ### 2026-07-14 — Portal: Extension screen (download + install + usage guide)
 - **What:** new **Extension** item in the sidebar (right under Job board). Clicking it **expands three
   sub-nav items in the sidebar** — **Download** (button that downloads the latest packaged extension

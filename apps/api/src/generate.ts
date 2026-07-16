@@ -15,6 +15,19 @@ export interface PortfolioPick {
   why: string;
 }
 
+/** Ascending portfolio order: page then position. Missing/NaN values sort last. */
+export function byPortfolioOrder(
+  a: { page: number | null; position: number | null },
+  b: { page: number | null; position: number | null },
+): number {
+  const ap = Number.isFinite(Number(a.page)) ? Number(a.page) : Infinity;
+  const bp = Number.isFinite(Number(b.page)) ? Number(b.page) : Infinity;
+  if (ap !== bp) return ap - bp;
+  const ai = Number.isFinite(Number(a.position)) ? Number(a.position) : Infinity;
+  const bi = Number.isFinite(Number(b.position)) ? Number(b.position) : Infinity;
+  return ai - bi;
+}
+
 export interface ProposalResult {
   cover_letter: string;
   screening_answers: ScreeningAnswer[];
@@ -37,14 +50,19 @@ function parseJson(raw: string): ProposalResult {
   } catch {
     throw new Error(`model did not return valid JSON: ${raw.slice(0, 200)}`);
   }
+  // Show the suggested portfolio points in portfolio ORDER (ascending page, then position) rather
+  // than the model's relevance order — the rep scans them in the same sequence as their portfolio,
+  // so each is easy to find. Missing page/position sort last.
+  const recs = Array.isArray(obj.portfolio_recommendations)
+    ? (obj.portfolio_recommendations as PortfolioPick[]).slice().sort(byPortfolioOrder)
+    : [];
+
   return {
     cover_letter: typeof obj.cover_letter === "string" ? obj.cover_letter : "",
     screening_answers: Array.isArray(obj.screening_answers)
       ? (obj.screening_answers as ScreeningAnswer[])
       : [],
-    portfolio_recommendations: Array.isArray(obj.portfolio_recommendations)
-      ? (obj.portfolio_recommendations as PortfolioPick[])
-      : [],
+    portfolio_recommendations: recs,
     client_name_used:
       typeof obj.client_name_used === "string" ? obj.client_name_used : null,
   };

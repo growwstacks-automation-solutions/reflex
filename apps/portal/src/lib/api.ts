@@ -230,6 +230,77 @@ export async function checkJobs(jobIds: string[]): Promise<Record<string, JobChe
   return data.statuses || {};
 }
 
+/** A row of the `portfolios` table — the source of the prompt's PORTFOLIO_INDEX. (id is an integer.) */
+export interface Portfolio {
+  id: number;
+  portfolio_title: string;
+  tools_used: string;
+  page_number: number;
+  position: number;
+}
+
+/** Fields for creating/editing a portfolio (no id on create). */
+export interface PortfolioInput {
+  portfolio_title: string;
+  tools_used: string;
+  page_number: number;
+  position: number;
+}
+
+async function portfolioResult(res: Response): Promise<Portfolio[]> {
+  if (res.status === 401) throw new UnauthorizedError("Session expired — please sign in again.");
+  const data = (await res.json().catch(() => ({}))) as { portfolios?: Portfolio[]; error?: string };
+  if (!res.ok) throw new Error(data.error || `Portfolio request failed (${res.status})`);
+  return data.portfolios || [];
+}
+
+/** GET /portfolios — all rows, ordered page_number ASC, position ASC. */
+export async function fetchPortfolios(token: string): Promise<Portfolio[]> {
+  const res = await fetch(`${BASE}/portfolios`, { headers: { authorization: `Bearer ${token}` } });
+  return portfolioResult(res);
+}
+
+/** POST /portfolios — create a row. Returns the refreshed list. */
+export async function createPortfolio(token: string, input: PortfolioInput): Promise<Portfolio[]> {
+  const res = await fetch(`${BASE}/portfolios`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+  return portfolioResult(res);
+}
+
+/** POST /portfolios/update — edit a row. Returns the refreshed list. */
+export async function updatePortfolio(token: string, id: number, input: PortfolioInput): Promise<Portfolio[]> {
+  const res = await fetch(`${BASE}/portfolios/update`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ id, ...input }),
+  });
+  return portfolioResult(res);
+}
+
+/** POST /portfolios/delete — delete a row. Returns the refreshed list (pages compacted). */
+export async function deletePortfolio(token: string, id: number): Promise<Portfolio[]> {
+  const res = await fetch(`${BASE}/portfolios/delete`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ id }),
+  });
+  return portfolioResult(res);
+}
+
+/** POST /portfolios/reorder — persist a drag-drop reorder. `order` = every id in the new global
+ *  sequence; the server re-sequences into pages of 10. Returns the refreshed list. */
+export async function reorderPortfolios(token: string, order: number[]): Promise<Portfolio[]> {
+  const res = await fetch(`${BASE}/portfolios/reorder`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify({ order }),
+  });
+  return portfolioResult(res);
+}
+
 export async function fetchBoard(token: string, query: BoardQuery = {}): Promise<BoardPage> {
   const p = new URLSearchParams();
   if (query.tab) p.set("tab", query.tab);
