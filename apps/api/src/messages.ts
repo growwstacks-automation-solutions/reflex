@@ -8,7 +8,7 @@
 // idempotently on message_id, and links to a job via jobs.chat_url. Suggested reply is generated
 // for the rep to COPY and send manually — Reflex never sends on Upwork (docs/DECISIONS.md D5).
 
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropicClient } from "./anthropic";
 import { neon } from "@neondatabase/serverless";
 import { json } from "./http";
 import { authUser } from "./auth";
@@ -240,7 +240,7 @@ export async function suggestReply(req: Request, env: Env): Promise<Response> {
     const usdToInr = Number.parseFloat(env.USD_TO_INR || "84") || 84;
     const { system, user } = buildSuggestPrompt(job, thread);
 
-    const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+    const client = anthropicClient(env.ANTHROPIC_API_KEY, env.ANTHROPIC_WORKSPACE_ID);
     const resp = await client.messages.create({
       model,
       max_tokens: SUGGEST_MAX_TOKENS,

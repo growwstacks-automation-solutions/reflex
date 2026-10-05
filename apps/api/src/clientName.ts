@@ -7,7 +7,7 @@
 //
 // The name only ever leaks when a reviewer happens to name the client, so this is best-effort:
 // no clear name -> null -> the proposal falls back to "Hey there" (unchanged behavior).
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropicClient } from "./anthropic";
 import template from "./reflex-client-name-prompt.template.txt";
 import { costInr, type Usage } from "./pricing";
 
@@ -64,8 +64,9 @@ export async function extractClientName(
   model: string,
   reviews: string[],
   usdToInr: number,
+  workspaceId?: string,
 ): Promise<ClientNameResult> {
-  const client = new Anthropic({ apiKey });
+  const client = anthropicClient(apiKey, workspaceId);
   const user = reviews.map((r, i) => `Review ${i + 1}: ${r}`).join("\n");
 
   const resp = await client.messages.create({

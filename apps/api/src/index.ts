@@ -21,6 +21,9 @@ import { listPortfolios, createPortfolio, updatePortfolio, deletePortfolio, reor
 export interface Env {
   // Secrets (NOT in wrangler.toml): .dev.vars locally, `wrangler secret put` in prod.
   ANTHROPIC_API_KEY: string;
+  // Optional secret: only needed when ANTHROPIC_API_KEY is an org-level key (not workspace-scoped).
+  // Sent as the `anthropic-workspace-id` header — see anthropic.ts.
+  ANTHROPIC_WORKSPACE_ID?: string;
   DATABASE_URL: string;
   JWT_SECRET: string;
   // Secret: URL that mints an Upwork access token for the Messages API (returns [{accessToken}]).
@@ -124,7 +127,7 @@ async function generateHandler(req: Request, env: Env): Promise<Response> {
       job = found;
     }
 
-    const { proposal, usage } = await generate(env.ANTHROPIC_API_KEY, model, MAX_TOKENS, job);
+    const { proposal, usage } = await generate(env.ANTHROPIC_API_KEY, model, MAX_TOKENS, job, env.ANTHROPIC_WORKSPACE_ID);
 
     // The model emits two loom PLACEHOLDERS in the cover letter; substitute the real matched
     // looms (jobs.looms, top 2) here so the rep copies a letter with working links. Done before
@@ -216,7 +219,7 @@ async function classifyHandler(req: Request, env: Env): Promise<Response> {
   const model = env.ANTHROPIC_MODEL || "claude-haiku-4-5";
   const usdToInr = Number.parseFloat(env.USD_TO_INR || "86") || 86;
   try {
-    const result = await classify(env.ANTHROPIC_API_KEY, model, job, usdToInr);
+    const result = await classify(env.ANTHROPIC_API_KEY, model, job, usdToInr, env.ANTHROPIC_WORKSPACE_ID);
     console.log("[classify]", result.relevance_raw, "/", result.quality_raw,
       "->", result.verdict, "/", result.quality, "·", result.cache_status,
       "· ₹", result.cost_inr, "·", result.tokens, "tokens");
@@ -253,7 +256,7 @@ async function clientNameHandler(req: Request, env: Env): Promise<Response> {
   const model = env.ANTHROPIC_MODEL || "claude-haiku-4-5";
   const usdToInr = Number.parseFloat(env.USD_TO_INR || "86") || 86;
   try {
-    const result = await extractClientName(env.ANTHROPIC_API_KEY, model, reviews, usdToInr);
+    const result = await extractClientName(env.ANTHROPIC_API_KEY, model, reviews, usdToInr, env.ANTHROPIC_WORKSPACE_ID);
     console.log("[clientName]", result.client_name ?? "(none)", "· ₹", result.cost_inr, "·", result.tokens, "tokens");
     return json(result);
   } catch (err) {

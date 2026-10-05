@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropicClient } from "./anthropic";
 import { buildPrompt } from "./prompt";
 import type { JobInput } from "./job";
 import type { Usage } from "./pricing";
@@ -73,8 +73,9 @@ export async function generate(
   model: string,
   maxTokens: number,
   job: JobInput,
+  workspaceId?: string,
 ): Promise<{ proposal: ProposalResult; usage: Usage }> {
-  const client = new Anthropic({ apiKey });
+  const client = anthropicClient(apiKey, workspaceId);
   const { system, user } = buildPrompt(job);
 
   const resp = await client.messages.create({

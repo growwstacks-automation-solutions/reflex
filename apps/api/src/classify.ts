@@ -7,7 +7,7 @@
 //   relevance  needs_review -> verdict 'review'      (job_verdict enum has no 'needs_review')
 //   quality    watch        -> 'medium'              (quality is good|medium|poor)
 // Cost is returned for storage in jobs.token_cost_inr + jobs.cache_status (existing columns).
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropicClient } from "./anthropic";
 import { costInr, type Usage } from "./pricing";
 
 // ── The classifier system prompt (n8n "Stage 2b" system.text, v2.1, verbatim). ──
@@ -310,8 +310,9 @@ export async function classify(
   model: string,
   job: ClassifyJob,
   usdToInr: number,
+  workspaceId?: string,
 ): Promise<ClassifyResult> {
-  const client = new Anthropic({ apiKey });
+  const client = anthropicClient(apiKey, workspaceId);
   const user = buildUserMessage(job);
 
   const resp = await client.messages.create({
