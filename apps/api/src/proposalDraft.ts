@@ -1,6 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 import { json } from "./http";
 import { byPortfolioOrder } from "./generate";
+import { loadPortfolioIndex, resolvePortfolioPicks, PORTFOLIO_ROWS } from "./portfolio";
 
 /**
  * GET-the-draft for ONE job — used by the extension to RESTORE a previously generated proposal
@@ -112,7 +113,7 @@ export async function proposalDraft(req: Request, env: { DATABASE_URL: string })
 
     // Suggested portfolio points — the `portfolio`-kind links. The synthetic url encodes
     // page/position ("portfolio://pN/iM"); the label is the sample title.
-    const portfolio_recommendations = linked
+    const savedPicks = linked
       .filter((a) => a.kind === "portfolio")
       .map((a) => {
         const m = String(a.url || "").match(/p(\d+)\/i(\d+)/);
@@ -122,7 +123,16 @@ export async function proposalDraft(req: Request, env: { DATABASE_URL: string })
           position: m ? Number(m[2]) : null,
           why: "",
         };
-      })
+      });
+
+    // A saved draft snapshots the portfolio as it was at generation time. Re-anchor each point to
+    // the CURRENT Portfolio table by title (not by the old page/position, which may now point at a
+    // different item) so the numbers match the portal; points since deleted are dropped.
+    // Non-fatal: if the table can't be read, the saved points are shown as they were.
+    await loadPortfolioIndex(env.DATABASE_URL).catch((err) =>
+      console.warn("[portfolio] load failed, showing saved points:", err instanceof Error ? err.message : String(err)),
+    );
+    const portfolio_recommendations = resolvePortfolioPicks(savedPicks, PORTFOLIO_ROWS, false)
       // Ascending portfolio order (page, then position) — same as /generate, so a restored draft
       // shows the suggested points in the same easy-to-scan sequence. (proposal_assets has no order.)
       .sort(byPortfolioOrder);

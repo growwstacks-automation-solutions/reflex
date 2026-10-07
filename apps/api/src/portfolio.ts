@@ -97,6 +97,61 @@ export interface PortfolioRow {
   position: number;
 }
 
+/** The rows behind PORTFOLIO_INDEX. Empty until a DB load succeeds (i.e. while on the fallback). */
+export let PORTFOLIO_ROWS: PortfolioRow[] = [];
+
+/** A suggested portfolio point as the model / a saved draft carries it. */
+export interface PortfolioPickLike {
+  title: string;
+  page: number | null;
+  position: number | null;
+  why: string;
+}
+
+function normTitle(s: string): string {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * Re-anchor suggested portfolio points to the CURRENT `portfolios` table, so the extension's
+ * "Portfolio pX, item Y" always matches the portal's Portfolio tab (page tab + position).
+ * Each pick is matched by title (exact after normalizing, else a unique prefix/containment
+ * match); with `allowPositionFallback` (fresh generations — the model saw this exact list), an
+ * unmatched title falls back to its page/position. Title, page and position are then taken from
+ * the table. Picks that match nothing (e.g. deleted since a draft was saved) are dropped;
+ * duplicates are collapsed. With no rows loaded (DB unreachable) picks pass through unchanged.
+ */
+export function resolvePortfolioPicks<T extends PortfolioPickLike>(
+  picks: T[],
+  rows: PortfolioRow[],
+  allowPositionFallback: boolean,
+): T[] {
+  if (!rows.length) return picks;
+  const byTitle = new Map<string, PortfolioRow>();
+  rows.forEach((r) => byTitle.set(normTitle(r.portfolio_title), r));
+
+  const used = new Set<PortfolioRow>();
+  const out: T[] = [];
+  for (const p of picks) {
+    const t = normTitle(p.title);
+    let row = t ? byTitle.get(t) : undefined;
+    if (!row && t.length >= 12) {
+      const partial = rows.filter((r) => {
+        const rt = normTitle(r.portfolio_title);
+        return rt.startsWith(t) || t.startsWith(rt) || rt.includes(t);
+      });
+      if (partial.length === 1) row = partial[0];
+    }
+    if (!row && allowPositionFallback && p.page != null && p.position != null) {
+      row = rows.find((r) => Number(r.page_number) === Number(p.page) && Number(r.position) === Number(p.position));
+    }
+    if (!row || used.has(row)) continue;
+    used.add(row);
+    out.push({ ...p, title: row.portfolio_title, page: Number(row.page_number), position: Number(row.position) });
+  }
+  return out;
+}
+
 /**
  * Render DB rows into the existing index string format — one line per item,
  * `N. Title — Tools — page P, position Q`. `N` is the 1-based order (rows arrive
@@ -124,5 +179,6 @@ export async function loadPortfolioIndex(databaseUrl: string): Promise<string> {
     order by page_number, position
   `) as PortfolioRow[];
   PORTFOLIO_INDEX = rows.length > 0 ? formatPortfolioIndex(rows) : DEFAULT_PORTFOLIO_INDEX;
+  PORTFOLIO_ROWS = rows;
   return PORTFOLIO_INDEX;
 }

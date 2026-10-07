@@ -1,4 +1,4 @@
-import { generate } from "./generate";
+import { generate, byPortfolioOrder } from "./generate";
 import { costInr } from "./pricing";
 import { STUB_JOB, applyOverrides, fetchJob, type JobInput, type JobOverrides } from "./job";
 import { CORS, json } from "./http";
@@ -15,7 +15,7 @@ import { proposalDraft } from "./proposalDraft";
 import { jobSubmitted } from "./submitted";
 import { fillLoomPlaceholders } from "./looms";
 import { syncMessages, suggestReply } from "./messages";
-import { loadPortfolioIndex } from "./portfolio";
+import { loadPortfolioIndex, resolvePortfolioPicks, PORTFOLIO_ROWS } from "./portfolio";
 import { listPortfolios, createPortfolio, updatePortfolio, deletePortfolio, reorderPortfolios } from "./portfolios";
 
 export interface Env {
@@ -133,6 +133,14 @@ async function generateHandler(req: Request, env: Env): Promise<Response> {
     // looms (jobs.looms, top 2) here so the rep copies a letter with working links. Done before
     // persist + response so both carry the final text.
     proposal.cover_letter = fillLoomPlaceholders(proposal.cover_letter, job.looms ?? []);
+
+    // Anchor the suggested portfolio points to the current Portfolio table (the portal's tab), so
+    // "Portfolio pX, item Y" is always the real page/position — the model's numbers aren't trusted.
+    proposal.portfolio_recommendations = resolvePortfolioPicks(
+      proposal.portfolio_recommendations ?? [],
+      PORTFOLIO_ROWS,
+      true,
+    ).sort(byPortfolioOrder);
 
     const { cost_inr } = costInr(model, usage, usdToInr);
     const tokens =
